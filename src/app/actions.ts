@@ -1,9 +1,13 @@
 "use server";
 
 import { randomBytes } from "node:crypto";
-import { eq, inArray, or } from "drizzle-orm";
+import { asc, eq, inArray, or } from "drizzle-orm";
+import { after } from "next/server";
 import { z } from "zod";
 import { db, schema as s } from "@/db";
+import { DAILY_BONUS_SLUG, pickDaily } from "@/lib/daily";
+import { sendOrderEmails } from "@/lib/email";
+import { getSettings } from "@/lib/queries";
 
 /* ---------- Bestilling ---------- */
 
@@ -16,6 +20,13 @@ const orderSchema = z.object({
     allowMention: z.boolean(),
   }),
   note: z.string().trim().max(2000),
+  gift: z
+    .object({
+      enabled: z.boolean(),
+      recipient: z.string().trim().max(80),
+      message: z.string().trim().max(1000),
+    })
+    .optional(),
   items: z
     .array(
       z.object({
@@ -31,13 +42,23 @@ const orderSchema = z.object({
   website: z.string().max(0).optional(), // honningfælde mod spam-robotter
 });
 
+/** "2026-10-10T07:30" -> "lørdag 10. oktober 2026 kl. 07.30" */
+function prettyAnswer(kind: string, value: string) {
+  const m = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?$/);
+  if (!m || (kind !== "date" && kind !== "datetime")) return value;
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], 12));
+  const day = d.toLocaleDateString("da-DK", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+  return m[4] ? `${day} kl. ${m[4]}.${m[5]}` : day;
+}
+
 export type OrderInput = z.infer<typeof orderSchema>;
 export type OrderResult = { ok: true; orderNumber: string; token: string } | { ok: false; error: string };
 
 export async function createOrder(input: OrderInput): Promise<OrderResult> {
   const parsed = orderSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Ugyldige oplysninger" };
-  const { customer, items, note } = parsed.data;
+  const { customer, items, note, gift } = parsed.data;
+  if (gift?.enabled && !gift.recipient) return { ok: false, error: "Skriv navnet på den, gaven er til" };
   if (!customer.email && !customer.phone)
     return { ok: false, error: "Skriv enten din e-mail eller dit telefonnummer, så jeg kan kontakte dig" };
 
@@ -70,7 +91,10 @@ export async function createOrder(input: OrderInput): Promise<OrderResult> {
       quantity = 1;
     }
 
-    const answers = p.questions.map((q) => ({ question: q.label, answer: (item.answers[String(q.id)] ?? "").trim() }));
+    const answers = p.questions.map((q) => ({
+      question: q.label,
+      answer: prettyAnswer(q.kind, (item.answers[String(q.id)] ?? "").trim()),
+    }));
     const missing = p.questions.find((q, i) => q.required && !answers[i].answer);
     if (missing) return { ok: false, error: `Svar på "${missing.label}" for ${p.name}` };
 
@@ -86,8 +110,35 @@ export async function createOrder(input: OrderInput): Promise<OrderResult> {
     });
   }
 
+  // Dagens venskab: køber man dagens udvalgte, følger en gratis bonus med
+  const candidates = await db.query.products.findMany({
+    where: eq(s.products.active, true),
+    columns: { id: true, slug: true },
+  });
+  const daily = pickDaily(candidates.filter((c) => c.slug !== DAILY_BONUS_SLUG));
+  if (daily && lines.some((l) => l.productId === daily.id)) {
+    const bonus = await db.query.products.findFirst({
+      where: eq(s.products.slug, DAILY_BONUS_SLUG),
+      with: { variants: { where: eq(s.productVariants.active, true), orderBy: asc(s.productVariants.sortOrder), limit: 1 } },
+    });
+    if (bonus?.active) {
+      lines.push({
+        productId: bonus.id,
+        variantId: bonus.variants[0]?.id ?? null,
+        productName: bonus.name,
+        variantName: bonus.variants[0]?.name ?? null,
+        unitPrice: 0,
+        quantity: 1,
+        lineTotal: 0,
+        isBonus: true,
+        answers: [{ question: "Bonus", answer: "Gratis med Dagens venskab 🎁" }],
+      });
+    }
+  }
+
   const total = lines.reduce((n, l) => n + (l.lineTotal ?? 0), 0);
   const token = randomBytes(18).toString("base64url");
+  const giftToken = gift?.enabled ? randomBytes(18).toString("base64url") : null;
   const email = customer.email.toLowerCase() || null;
   const phone = customer.phone.replace(/\s/g, "") || null;
 
@@ -120,12 +171,47 @@ export async function createOrder(input: OrderInput): Promise<OrderResult> {
 
     const [order] = await tx
       .insert(s.orders)
-      .values({ orderNumber: `tmp-${token}`, accessToken: token, customerId, total, customerNote: note })
+      .values({
+        orderNumber: `tmp-${token}`,
+        accessToken: token,
+        customerId,
+        total,
+        customerNote: note,
+        isGift: !!gift?.enabled,
+        giftRecipient: gift?.enabled ? gift.recipient : null,
+        giftMessage: gift?.enabled ? gift.message : null,
+        giftToken,
+      })
       .returning({ id: s.orders.id });
     const number = `VC-${1000 + order.id}`;
     await tx.update(s.orders).set({ orderNumber: number }).where(eq(s.orders.id, order.id));
     await tx.insert(s.orderItems).values(lines.map((l) => ({ ...l, orderId: order.id })));
     return number;
+  });
+
+  // Bekræftelser sendes efter svaret, så kunden ikke venter på e-mailen
+  after(async () => {
+    const settings = await getSettings();
+    await sendOrderEmails(
+      {
+        orderNumber,
+        accessToken: token,
+        total,
+        status: "afventer_betaling",
+        isGift: !!gift?.enabled,
+        giftRecipient: gift?.recipient ?? null,
+        customer: { name: customer.name, email, phone },
+        items: lines.map((l) => ({
+          productName: l.productName,
+          variantName: l.variantName ?? null,
+          quantity: l.quantity ?? 1,
+          lineTotal: l.lineTotal,
+          isBonus: !!l.isBonus,
+        })),
+      },
+      settings.mobilepayNumber ?? "60614309",
+      settings.contactEmail,
+    );
   });
 
   return { ok: true, orderNumber, token };

@@ -3,7 +3,10 @@ import Link from "next/link";
 import { ProductCard, TestimonialCard } from "@/components/product-bits";
 import { Reveal } from "@/components/reveal";
 import { DriftingClouds, Rainbow, RisingEmojis, Sun, Wave } from "@/components/sky";
+import { SurpriseWheel } from "@/components/surprise-wheel";
 import { YouTube } from "@/components/youtube";
+import { DAILY_BONUS_SLUG, pickDaily } from "@/lib/daily";
+import { EXPERIENCES } from "@/lib/experience-list";
 import { getCategories, getPublishedTestimonials, getSettings, getShopProducts, getShopStats } from "@/lib/queries";
 
 export default async function HomePage() {
@@ -16,6 +19,8 @@ export default async function HomePage() {
   ]);
   const featured = products.filter((p) => p.featured).slice(0, 8);
   const cheapest = Math.min(...products.map((p) => p.fromPrice));
+  const daily = pickDaily(products.filter((p) => p.slug !== DAILY_BONUS_SLUG));
+  const bonus = products.find((p) => p.slug === DAILY_BONUS_SLUG);
 
   return (
     <>
@@ -92,6 +97,37 @@ export default async function HomePage() {
           <YouTube id={settings.introVideo ?? "b2Wab89xhOc"} title="Køb venskaber og venskabstjenester" />
         </Reveal>
       </section>
+
+      {/* DAGENS VENSKAB */}
+      {daily && (
+        <section className="mx-auto max-w-5xl px-4 pt-20">
+          <Reveal className="card relative grid items-center gap-6 overflow-visible bg-[#fff3b0] p-6 sm:grid-cols-[200px_1fr] sm:p-8">
+            <span className="absolute -top-5 left-6 rotate-[-4deg] rounded-full border-[3px] border-ink bg-coral px-4 py-1 font-display font-bold text-white shadow-[0_4px_0_0_#2b2d42]">
+              ⭐ Dagens venskab
+            </span>
+            <div
+              className="grid aspect-square place-items-center rounded-3xl border-[3px] border-ink text-8xl"
+              style={{ background: daily.color }}
+              aria-hidden="true"
+            >
+              <span className="animate-float">{daily.emoji}</span>
+            </div>
+            <div>
+              <p className="font-display font-semibold text-coral">{daily.tagline}</p>
+              <h2 className="text-4xl font-bold">{daily.name}</h2>
+              <p className="mt-2 text-lg">{daily.summary}</p>
+              {bonus && (
+                <p className="mt-3 font-semibold">
+                  🎁 Køb den i dag, og få <strong>“{bonus.name}”</strong> gratis med oveni!
+                </p>
+              )}
+              <Link href={`/tjenester/${daily.slug}`} className="btn btn-coral mt-4">
+                Se dagens venskab →
+              </Link>
+            </div>
+          </Reveal>
+        </section>
+      )}
 
       {/* UDVALGTE */}
       <section className="mx-auto max-w-6xl px-4 pt-24">
@@ -177,6 +213,42 @@ export default async function HomePage() {
               </Reveal>
             );
           })}
+        </ul>
+      </section>
+
+      {/* LYKKEHJUL */}
+      <section className="mx-auto max-w-5xl px-4 pt-24">
+        <Reveal>
+          <SurpriseWheel items={products.map((p) => ({ slug: p.slug, name: p.name, emoji: p.emoji, color: p.color }))} />
+        </Reveal>
+      </section>
+
+      {/* OPLEVELSER */}
+      <section className="mx-auto max-w-6xl px-4 pt-24">
+        <Reveal className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="font-display text-lg font-semibold text-coral">Se venskaberne leve</p>
+            <h2 className="text-4xl font-bold sm:text-5xl">Oplevelser 🎡</h2>
+          </div>
+          <Link href="/oplevelser" className="btn btn-sun">
+            Alle oplevelser →
+          </Link>
+        </Reveal>
+        <ul className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+          {EXPERIENCES.map((e, i) => (
+            <Reveal as="li" key={e.slug} delay={(i % 5) * 60}>
+              <Link
+                href={`/oplevelser/${e.slug}`}
+                className="group card flex h-full flex-col items-center p-4 text-center transition hover:-translate-y-1"
+                style={{ background: `color-mix(in srgb, ${e.color} 30%, white)` }}
+              >
+                <span className="text-4xl transition group-hover:animate-wiggle" aria-hidden="true">
+                  {e.emoji}
+                </span>
+                <span className="mt-2 font-display font-bold leading-tight">{e.title}</span>
+              </Link>
+            </Reveal>
+          ))}
         </ul>
       </section>
 

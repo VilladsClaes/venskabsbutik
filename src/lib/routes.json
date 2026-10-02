@@ -1,0 +1,51 @@
+[
+ {
+  "slug": "lillehammer-santiago",
+  "name": "Lillehammer til Santiago i Spanien",
+  "caption": "Den her tur er lang",
+  "color": "#ff6b6b",
+  "lines": 110
+ },
+ {
+  "slug": "nordspanien-sydspanien",
+  "name": "Nordspanien til sydspanien",
+  "caption": "Det her foregår i Spanien",
+  "color": "#ff9f1c",
+  "lines": 24
+ },
+ {
+  "slug": "wales-frankrig",
+  "name": "Wales til Frankrig over vandet",
+  "caption": "En tur ned igennem England, hva' siger du?",
+  "color": "#06d6a0",
+  "lines": 26
+ },
+ {
+  "slug": "nordsoeen-rundt",
+  "name": "Nordsøen rundt på Cykel",
+  "caption": "Rundt om Nordsøen – det har du nok ikke prøvet før",
+  "color": "#4d96ff",
+  "lines": 105
+ },
+ {
+  "slug": "keltisk-cykeltur",
+  "name": "Keltisk cykeltur",
+  "caption": "Irland frem og tilbage, ja ja",
+  "color": "#a66cff",
+  "lines": 65
+ },
+ {
+  "slug": "portugal",
+  "name": "Cykeltur i Portugal fra Lissabon og sydover",
+  "caption": "Husk sardiner",
+  "color": "#ff70a6",
+  "lines": 8
+ },
+ {
+  "slug": "nantes-pamplona",
+  "name": "Nantes Frankrig til Pamplona Spanien",
+  "caption": "Dig og mig i Frankrig, måske?",
+  "color": "#2ec4b6",
+  "lines": 30
+ }
+]

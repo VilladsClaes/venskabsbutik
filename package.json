@@ -16,8 +16,12 @@
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
+    "@vercel/analytics": "^2.0.1",
+    "@vercel/blob": "^2.8.0",
     "drizzle-orm": "^0.45.3",
+    "globe.gl": "^2.46.2",
     "jose": "^6.2.12",
+    "leaflet": "^1.9.4",
     "next": "16.3.8",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -25,6 +29,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/leaflet": "^1.9.22",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

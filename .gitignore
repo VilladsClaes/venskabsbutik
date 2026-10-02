@@ -46,3 +46,6 @@ next-env.d.ts
 
 # lokale produktions-nøgler (Turso)
 .env.production.local
+
+# billeder uploadet lokalt fra admin
+/public/uploads/

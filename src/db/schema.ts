@@ -1,5 +1,5 @@
 import { relations, sql } from "drizzle-orm";
-import { integer, sqliteTable, text, uniqueIndex, index } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 // Alle beløb gemmes som heltal i øre (540 = 5,40 kr) for at undgå afrundingsfejl.
 
@@ -77,7 +77,7 @@ export const productVariants = sqliteTable("product_variants", {
   sortOrder: integer("sort_order").notNull().default(0),
 });
 
-export const MEDIA_KINDS = ["image", "youtube", "video"] as const;
+export const MEDIA_KINDS = ["image", "youtube", "video", "audio"] as const;
 export type MediaKind = (typeof MEDIA_KINDS)[number];
 
 export const productMedia = sqliteTable("product_media", {
@@ -153,6 +153,12 @@ export const orders = sqliteTable(
     paymentMethod: text("payment_method", { enum: PAYMENT_METHODS }).notNull().default("mobilepay"),
     total: integer("total").notNull(),
     customerNote: text("customer_note").notNull().default(""),
+    /** Gavetilstand: købt til en anden */
+    isGift: integer("is_gift", { mode: "boolean" }).notNull().default(false),
+    giftRecipient: text("gift_recipient"),
+    giftMessage: text("gift_message"),
+    /** Hemmelig nøgle til modtagerens gaveside (uden priser) */
+    giftToken: text("gift_token"),
     adminNote: text("admin_note").notNull().default(""),
     paidAt: integer("paid_at", { mode: "timestamp" }),
     deliveredAt: integer("delivered_at", { mode: "timestamp" }),
@@ -176,6 +182,8 @@ export const orderItems = sqliteTable(
     unitPrice: integer("unit_price").notNull(),
     quantity: integer("quantity").notNull().default(1),
     lineTotal: integer("line_total").notNull(),
+    /** Gratis bonus, fx fra "Dagens venskab" */
+    isBonus: integer("is_bonus", { mode: "boolean" }).notNull().default(false),
     answers: text("answers", { mode: "json" })
       .$type<{ question: string; answer: string }[]>()
       .notNull()
@@ -198,6 +206,35 @@ export const payments = sqliteTable("payments", {
     .notNull()
     .default(sql`(unixepoch())`),
 });
+
+/**
+ * Leveringsdagbogen: hvad Villads faktisk har leveret, og hvor.
+ * Driver bænkekortet, himmelglobussen, tankemåleren, lussing-hitlisten, væggen m.fl.
+ */
+export const deliveries = sqliteTable(
+  "deliveries",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    productId: integer("product_id").references(() => products.id, { onDelete: "set null" }),
+    orderId: integer("order_id").references(() => orders.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    note: text("note").notNull().default(""),
+    /** Hvem det var til – vises kun hvis køberen har sagt ja til at blive nævnt */
+    dedicatedTo: text("dedicated_to"),
+    placeName: text("place_name"),
+    lat: real("lat"),
+    lng: real("lng"),
+    photoUrl: text("photo_url"),
+    /** Fx minutter tænkt, rødme 1-10, beløb i øre – afhænger af produktet */
+    amount: real("amount"),
+    deliveredAt: integer("delivered_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    isPublic: integer("is_public", { mode: "boolean" }).notNull().default(true),
+    ...timestamps,
+  },
+  (t) => [index("deliveries_product_idx").on(t.productId)],
+);
 
 export const TESTIMONIAL_STATUSES = ["pending", "published", "hidden"] as const;
 export type TestimonialStatus = (typeof TESTIMONIAL_STATUSES)[number];
@@ -239,6 +276,7 @@ export const productsRelations = relations(products, ({ one, many }) => ({
   media: many(productMedia),
   questions: many(productQuestions),
   testimonials: many(testimonials),
+  deliveries: many(deliveries),
 }));
 
 export const productVariantsRelations = relations(productVariants, ({ one }) => ({
@@ -275,4 +313,9 @@ export const paymentsRelations = relations(payments, ({ one }) => ({
 export const testimonialsRelations = relations(testimonials, ({ one }) => ({
   product: one(products, { fields: [testimonials.productId], references: [products.id] }),
   customer: one(customers, { fields: [testimonials.customerId], references: [customers.id] }),
+}));
+
+export const deliveriesRelations = relations(deliveries, ({ one }) => ({
+  product: one(products, { fields: [deliveries.productId], references: [products.id] }),
+  order: one(orders, { fields: [deliveries.orderId], references: [orders.id] }),
 }));

@@ -8,6 +8,7 @@ import { useWishlist } from "./wishlist";
 
 const NAV = [
   { href: "/tjenester", label: "Tjenester", emoji: "🎁" },
+  { href: "/oplevelser", label: "Oplevelser", emoji: "🎡" },
   { href: "/om-venskaber", label: "Om venskaber", emoji: "🤝" },
   { href: "/priser", label: "Sådan betaler du", emoji: "💸" },
   { href: "/om-villads", label: "Om Villads", emoji: "🙋‍♂️" },
@@ -43,7 +44,7 @@ export function Header() {
           </span>
         </Link>
 
-        <nav className="ml-auto hidden items-center gap-1 md:flex" aria-label="Hovedmenu">
+        <nav className="ml-auto hidden items-center gap-1 lg:flex" aria-label="Hovedmenu">
           {NAV.map((n) => {
             const active = pathname.startsWith(n.href);
             return (
@@ -62,7 +63,7 @@ export function Header() {
 
         <Link
           href="/oenskeliste"
-          className="btn btn-white ml-auto !px-3 !py-1.5 md:ml-2"
+          className="btn btn-white ml-auto !px-3 !py-1.5 lg:ml-2"
           aria-label={`Ønskeliste, ${wishlist.slugs.length} ønsker`}
         >
           <span aria-hidden="true">{wishlist.ready && wishlist.slugs.length > 0 ? "💖" : "🤍"}</span>
@@ -89,7 +90,7 @@ export function Header() {
 
         <button
           type="button"
-          className="btn btn-white !px-3 !py-1.5 md:hidden"
+          className="btn btn-white !px-3 !py-1.5 lg:hidden"
           aria-expanded={open}
           aria-controls="mobilmenu"
           onClick={() => setOpen((o) => !o)}
@@ -100,7 +101,7 @@ export function Header() {
       </div>
 
       {open && (
-        <nav id="mobilmenu" className="border-t-[3px] border-ink bg-cream px-4 py-3 md:hidden" aria-label="Mobilmenu">
+        <nav id="mobilmenu" className="border-t-[3px] border-ink bg-cream px-4 py-3 lg:hidden" aria-label="Mobilmenu">
           <ul className="grid gap-2">
             {NAV.map((n, i) => (
               <li key={n.href} className="animate-pop-in" style={{ animationDelay: `${i * 50}ms` }}>

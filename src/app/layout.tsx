@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Fredoka, Nunito } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import { SITE_URL } from "@/lib/site";
 
@@ -28,7 +29,11 @@ export const viewport: Viewport = { themeColor: "#ffd23f" };
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="da" className={`${fredoka.variable} ${nunito.variable}`}>
-      <body className="min-h-screen antialiased">{children}</body>
+      <body className="min-h-screen antialiased">
+        {children}
+        {/* Cookiefri besøgsstatistik – aktiveres under "Analytics" i Vercel */}
+        <Analytics />
+      </body>
     </html>
   );
 }

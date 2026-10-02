@@ -87,9 +87,22 @@ Anbefalet (gratis til en hobbybutik): **Vercel** til hjemmesiden + **Turso** til
 
 `www.villadsclaes.dk` er reserveret til en fælles landingsside for Villads' sites.
 
+## Oplevelser og påfund
+
+| Hvad | Hvor |
+|---|---|
+| Leveringsdagbog (sted, foto, hvem) – driver kort, globus og tællere | `/admin/leverancer` |
+| Bænkekortet, Himmelglobussen, Tankemåleren, Lussing-hitlisten, Fødselsdags-nedtællingen, Rutekortet, Væggen, Godhedstermometret, Gækkebrev-værkstedet, Godnathistorierne | `/oplevelser` |
+| Gavetilstand med digitalt gavekort | kurven → “Det er en gave” → `/gave/<ordre>` |
+| Venskabsniveauer og venskabscertifikat | ordresiden |
+| Dagens venskab (gratis bonus), lykkehjul, live-ticker | forsiden |
+| E-mails (Resend), billedupload (Vercel Blob), statistik (Vercel Analytics) | se status i `/admin/indstillinger` |
+
+Ruterne på rutekortet ligger som GeoJSON i `public/routes/` (hentet fra de gamle Google My Maps).
+
 ## Næste skridt
 
-- Flere betalingsmetoder (MobilePay/Vipps ePayment API, kort via Stripe)
+- Flere betalingsmetoder (kort via Stripe; automatisk MobilePay kræver en erhvervsaftale med Vipps MobilePay)
 - Upload af billeder direkte fra admin (fx Vercel Blob) – lige nu lægges billeder i `public/images/products/`
 - E-mail til kunden når ordren skifter status
 - Billeder til de 8 tjenester, der endnu bruger emoji-illustration

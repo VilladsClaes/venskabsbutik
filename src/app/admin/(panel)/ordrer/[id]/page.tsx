@@ -52,7 +52,7 @@ export default async function OrderDetail({ params }: PageProps<"/admin/ordrer/[
                         </span>
                       )}
                     </span>
-                    <span className="font-display">{formatKr(it.lineTotal)}</span>
+                    <span className="font-display">{it.isBonus ? "🎁 Gratis" : formatKr(it.lineTotal)}</span>
                   </div>
                   {it.answers.length > 0 && (
                     <dl className="mt-2 space-y-1 rounded-xl bg-cream p-3 text-sm">
@@ -71,6 +71,17 @@ export default async function OrderDetail({ params }: PageProps<"/admin/ordrer/[
               <span>I alt</span>
               <span>{formatKr(order.total)}</span>
             </div>
+            {order.isGift && (
+              <div className="mt-4 rounded-xl bg-[#ffe5ec] p-3">
+                <p className="text-sm font-bold">🎁 Gave til {order.giftRecipient}</p>
+                {order.giftMessage && <p className="whitespace-pre-wrap">“{order.giftMessage}”</p>}
+                {order.giftToken && (
+                  <a className="text-xs underline" href={`${SITE_URL}/gave/${order.orderNumber}?g=${order.giftToken}`}>
+                    Gavekortets link (send til modtageren)
+                  </a>
+                )}
+              </div>
+            )}
             {order.customerNote && (
               <div className="mt-4 rounded-xl bg-[#fff3b0] p-3">
                 <p className="text-sm font-bold">Besked fra kunden</p>
@@ -97,6 +108,12 @@ export default async function OrderDetail({ params }: PageProps<"/admin/ordrer/[
             <p className="mt-3 text-sm text-ink-soft">
               Betalt: {formatDate(order.paidAt)} · Leveret: {formatDate(order.deliveredAt)}
             </p>
+            <Link
+              href={`/admin/leverancer/ny?ordre=${order.id}${order.items[0]?.productId ? `&produkt=${order.items[0].productId}` : ""}`}
+              className="btn btn-white mt-4 !py-1.5 text-sm"
+            >
+              📔 Skriv levering i dagbogen
+            </Link>
           </section>
 
           <section className="card p-5">

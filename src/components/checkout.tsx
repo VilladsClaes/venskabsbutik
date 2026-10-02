@@ -25,6 +25,7 @@ export function Checkout({ catalog, mobilepay }: { catalog: Record<number, Catal
   const [answers, setAnswers] = useState<Record<string, Record<string, string>>>({});
   const [customer, setCustomer] = useState({ name: "", email: "", phone: "", nickname: "", allowMention: true });
   const [note, setNote] = useState("");
+  const [gift, setGift] = useState({ enabled: false, recipient: "", message: "" });
 
   // Brug altid de aktuelle priser fra databasen
   const priced = useMemo(
@@ -62,6 +63,7 @@ export function Checkout({ catalog, mobilepay }: { catalog: Record<number, Catal
       const res = await createOrder({
         customer,
         note,
+        gift,
         website: "",
         items: lines.map((l) => ({
           productId: l.productId,
@@ -210,6 +212,46 @@ export function Checkout({ catalog, mobilepay }: { catalog: Record<number, Catal
             <span className="text-sm font-bold">Besked til Villads (valgfrit)</span>
             <textarea className="input mt-1 min-h-20" value={note} onChange={(e) => setNote(e.target.value)} />
           </label>
+        </div>
+
+        <div className={`card space-y-3 p-5 transition ${gift.enabled ? "bg-[#ffe5ec]" : ""}`}>
+          <label className="flex cursor-pointer items-center gap-3">
+            <input
+              type="checkbox"
+              className="h-5 w-5 accent-coral"
+              checked={gift.enabled}
+              onChange={(e) => setGift((g) => ({ ...g, enabled: e.target.checked }))}
+            />
+            <span className="font-display text-xl font-bold">🎁 Det er en gave</span>
+          </label>
+          {gift.enabled && (
+            <div className="animate-pop-in space-y-3">
+              <p className="text-sm text-ink-soft">
+                Du får et digitalt gavekort med animation, som du kan sende til modtageren. Der står ingen priser på det.
+              </p>
+              <label className="block">
+                <span className="text-sm font-bold">Til hvem? <span className="text-coral">*</span></span>
+                <input
+                  className="input mt-1"
+                  required
+                  maxLength={80}
+                  value={gift.recipient}
+                  onChange={(e) => setGift((g) => ({ ...g, recipient: e.target.value }))}
+                  placeholder="Fx Mormor"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-bold">Hilsen på gavekortet</span>
+                <textarea
+                  className="input mt-1 min-h-20"
+                  maxLength={1000}
+                  value={gift.message}
+                  onChange={(e) => setGift((g) => ({ ...g, message: e.target.value }))}
+                  placeholder="Kære mormor, nu får du endelig en ven, der sidder på en bænk for dig 💛"
+                />
+              </label>
+            </div>
+          )}
         </div>
 
         <div className="card space-y-4 bg-sun p-5">

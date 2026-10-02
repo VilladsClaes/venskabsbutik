@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { saveProduct, type ProductFormData } from "@/app/admin/actions";
 import { formatAmount, parseKr } from "@/lib/money";
+import { UploadButton } from "./upload-button";
 
 type Category = { id: number; name: string; emoji: string };
 
@@ -191,7 +192,7 @@ export function ProductEditor({ initial, categories }: { initial: ProductFormDat
 
         <Section title="Billeder og video 📸">
           <p className="text-sm text-ink-soft">
-            Billeder: læg filen i <code>public/images/products/</code> og skriv stien, fx <code>/images/products/lussing.jpg</code>. YouTube: skriv videoens id (fx <code>b2Wab89xhOc</code>).
+            Billeder og lyd: tryk “Upload” – eller skriv en sti, fx <code>/images/products/lussing.jpg</code>. YouTube: skriv videoens id (fx <code>b2Wab89xhOc</code>).
           </p>
           {p.media.map((m, i) => {
             const upd = (patch: Partial<typeof m>) => set("media", p.media.map((x, j) => (j === i ? { ...x, ...patch } : x)));
@@ -202,8 +203,16 @@ export function ProductEditor({ initial, categories }: { initial: ProductFormDat
                     <option value="image">Billede</option>
                     <option value="youtube">YouTube</option>
                     <option value="video">Videofil</option>
+                    <option value="audio">Lyd (fx godnathistorie)</option>
                   </select>
                   <input className="input min-w-48 flex-1 font-mono text-sm" value={m.url} required placeholder={m.kind === "youtube" ? "YouTube-id" : "/images/products/..."} onChange={(e) => upd({ url: e.target.value })} />
+                  {m.kind !== "youtube" && (
+                    <UploadButton
+                      folder="produkter"
+                      accept={m.kind === "audio" ? "audio/*" : "image/*"}
+                      onUploaded={(url) => upd({ url })}
+                    />
+                  )}
                   <button type="button" aria-label="Flyt op" onClick={() => set("media", move(p.media, i, -1))}>⬆️</button>
                   <button type="button" aria-label="Fjern" className="text-coral" onClick={() => set("media", p.media.filter((_, j) => j !== i))}>✖</button>
                 </div>

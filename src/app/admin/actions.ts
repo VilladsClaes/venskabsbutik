@@ -2,12 +2,16 @@
 
 import { and, eq, notInArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db, schema as s } from "@/db";
 import { MEDIA_KINDS, ORDER_STATUSES, PRICE_KINDS, QUESTION_KINDS, TESTIMONIAL_STATUSES } from "@/db/schema";
 import { destroySession, requireAdmin } from "@/lib/auth";
+import { fromLocalInput } from "@/lib/dates";
+import { sendStatusEmail } from "@/lib/email";
 import { parseKr } from "@/lib/money";
+import { saveUpload } from "@/lib/upload";
 
 function refresh() {
   revalidatePath("/", "layout");
@@ -34,7 +38,19 @@ export async function setOrderStatus(orderId: number, status: (typeof ORDER_STAT
       deliveredAt: status === "leveret" ? (order.deliveredAt ?? now) : order.deliveredAt,
     })
     .where(eq(s.orders.id, orderId));
+  if (status !== order.status) notifyStatus(orderId);
   refresh();
+}
+
+/** Sender statusmail til kunden efter svaret (kun hvis e-mail er sat op) */
+function notifyStatus(orderId: number) {
+  after(async () => {
+    const o = await db.query.orders.findFirst({
+      where: eq(s.orders.id, orderId),
+      with: { customer: true, items: true },
+    });
+    if (o) await sendStatusEmail(o);
+  });
 }
 
 export async function addPayment(orderId: number, form: FormData) {
@@ -53,6 +69,7 @@ export async function addPayment(orderId: number, form: FormData) {
   const paid = order.payments.reduce((n, p) => n + p.amount, 0) + amount;
   if (order.status === "afventer_betaling" && paid >= order.total) {
     await db.update(s.orders).set({ status: "betalt", paidAt: new Date() }).where(eq(s.orders.id, orderId));
+    notifyStatus(orderId);
   }
   refresh();
 }
@@ -267,4 +284,61 @@ export async function saveSettings(form: FormData) {
       .onConflictDoUpdate({ target: s.settings.key, set: { value } });
   }
   refresh();
+}
+
+/* ---------- Upload ---------- */
+
+export async function uploadMedia(form: FormData): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  await requireAdmin();
+  const file = form.get("file");
+  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Vælg en fil" };
+  try {
+    return { ok: true, url: await saveUpload(file, String(form.get("folder") ?? "diverse")) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Upload fejlede" };
+  }
+}
+
+/* ---------- Leveringsdagbog ---------- */
+
+const deliverySchema = z.object({
+  id: z.number().int().optional(),
+  productId: z.number().int().nullable(),
+  orderId: z.number().int().nullable(),
+  title: z.string().trim().min(1, "Skriv en titel").max(200),
+  note: z.string().max(5000),
+  dedicatedTo: z.string().trim().max(120).nullable(),
+  placeName: z.string().trim().max(200).nullable(),
+  lat: z.number().min(-90).max(90).nullable(),
+  lng: z.number().min(-180).max(180).nullable(),
+  photoUrl: z.string().trim().max(500).nullable(),
+  amount: z.number().nullable(),
+  deliveredAt: z.string().min(8),
+  isPublic: z.boolean(),
+});
+
+export type DeliveryFormData = z.infer<typeof deliverySchema>;
+
+export async function saveDelivery(
+  input: DeliveryFormData,
+): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
+  await requireAdmin();
+  const parsed = deliverySchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Ugyldige oplysninger" };
+  const { id, deliveredAt, ...rest } = parsed.data;
+  const when = fromLocalInput(deliveredAt);
+  if (Number.isNaN(when.getTime())) return { ok: false, error: "Ugyldig dato" };
+  const values = { ...rest, deliveredAt: when };
+  let rowId = id;
+  if (id) await db.update(s.deliveries).set(values).where(eq(s.deliveries.id, id));
+  else [{ id: rowId }] = await db.insert(s.deliveries).values(values).returning({ id: s.deliveries.id });
+  refresh();
+  return { ok: true, id: rowId! };
+}
+
+export async function deleteDelivery(id: number) {
+  await requireAdmin();
+  await db.delete(s.deliveries).where(eq(s.deliveries.id, id));
+  refresh();
+  redirect("/admin/leverancer");
 }

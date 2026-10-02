@@ -8,7 +8,11 @@ import { Reveal } from "@/components/reveal";
 import { ShareBar } from "@/components/share";
 import { DriftingClouds } from "@/components/sky";
 import { TestimonialForm } from "@/components/testimonial-form";
+import { Countdown } from "@/components/live-numbers";
 import { YouTube } from "@/components/youtube";
+import { upcomingMilestones } from "@/lib/birthday";
+import { DAILY_BONUS_SLUG, pickDaily } from "@/lib/daily";
+import { experienceFor } from "@/lib/experience-list";
 import { getProductBySlug, getShopProducts } from "@/lib/queries";
 import { SITE_URL } from "@/lib/site";
 
@@ -43,7 +47,13 @@ export default async function ProductPage({ params }: PageProps<"/tjenester/[slu
 
   const images = product.media.filter((m) => m.kind === "image");
   const videos = product.media.filter((m) => m.kind === "youtube");
-  const related = (await getShopProducts())
+  const audios = product.media.filter((m) => m.kind === "audio");
+  const allProducts = await getShopProducts();
+  const isDaily = pickDaily(allProducts.filter((p) => p.slug !== DAILY_BONUS_SLUG))?.id === product.id;
+  const bonusName = allProducts.find((p) => p.slug === DAILY_BONUS_SLUG)?.name;
+  const experience = experienceFor(product.slug);
+  const nextBirthday = product.slug === "foedselsdag" ? upcomingMilestones(new Date(), 1)[0] : undefined;
+  const related = allProducts
     .filter((p) => p.id !== product.id && p.categoryId === product.categoryId)
     .slice(0, 4);
   const reviews = product.testimonials;
@@ -141,6 +151,11 @@ export default async function ProductPage({ params }: PageProps<"/tjenester/[slu
                 {product.sold > 0 && <span>🔥 {product.sold} solgt</span>}
               </div>
               <p className="mt-5 text-xl font-semibold">{product.summary}</p>
+              {isDaily && (
+                <p className="mt-4 animate-pop-in rounded-2xl border-[3px] border-ink bg-coral px-4 py-3 font-semibold text-white">
+                  ⭐ Dagens venskab! Køb den i dag, og få {bonusName ? `“${bonusName}”` : "en bonus"} gratis med 🎁
+                </p>
+              )}
 
               <div className="mt-6">
                 <AddToCart
@@ -210,6 +225,58 @@ export default async function ProductPage({ params }: PageProps<"/tjenester/[slu
           )}
         </div>
       </section>
+
+      {(experience || nextBirthday) && (
+        <section className="mx-auto max-w-6xl space-y-6 px-4 pt-16">
+          {nextBirthday && (
+            <Reveal className="card bg-sun p-6 text-center">
+              <p className="font-display text-lg font-semibold">
+                Næste runde fødselsdag: {nextBirthday.emoji} {nextBirthday.label} –{" "}
+                {nextBirthday.date.toLocaleDateString("da-DK", { day: "numeric", month: "long", year: "numeric" })}
+              </p>
+              <div className="mt-4">
+                <Countdown to={nextBirthday.date.toISOString()} />
+              </div>
+            </Reveal>
+          )}
+          {experience && (
+            <Reveal>
+              <Link
+                href={`/oplevelser/${experience.slug}`}
+                className="group card flex flex-wrap items-center gap-5 p-5 transition hover:-translate-y-1"
+                style={{ background: `color-mix(in srgb, ${experience.color} 30%, white)` }}
+              >
+                <span className="text-6xl transition group-hover:animate-wiggle" aria-hidden="true">
+                  {experience.emoji}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-display text-sm font-semibold text-coral">Se det leve</span>
+                  <span className="block font-display text-2xl font-bold">{experience.title}</span>
+                  <span className="block text-ink-soft">{experience.text}</span>
+                </span>
+                <span className="btn btn-white">Åbn →</span>
+              </Link>
+            </Reveal>
+          )}
+        </section>
+      )}
+
+      {audios.length > 0 && (
+        <section className="mx-auto max-w-6xl px-4 pt-16">
+          <Reveal>
+            <h2 className="text-3xl font-bold">Lyt med 🎧</h2>
+          </Reveal>
+          <ul className="mt-6 grid gap-4 md:grid-cols-2">
+            {audios.map((a) => (
+              <li key={a.id} className="card p-4">
+                <p className="font-display font-bold">{a.alt || product.name}</p>
+                {a.caption && <p className="text-sm text-ink-soft">{a.caption}</p>}
+                <audio controls preload="none" src={a.url} className="mt-2 w-full" />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {videos.length > 0 && (
         <section className="mx-auto max-w-6xl px-4 pt-16">
