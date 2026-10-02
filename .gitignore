@@ -43,3 +43,6 @@ next-env.d.ts
 
 # lokal database
 /data/*.db*
+
+# lokale produktions-nøgler (Turso)
+.env.production.local
