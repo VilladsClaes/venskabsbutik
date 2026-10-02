@@ -1,26 +1,177 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --font-display: var(--font-fredoka), "Comic Sans MS", system-ui, sans-serif;
+  --font-sans: var(--font-nunito), system-ui, sans-serif;
+
+  --color-ink: #2b2d42;
+  --color-ink-soft: #5c5f7a;
+  --color-sky: #bde0fe;
+  --color-sky-deep: #8ecae6;
+  --color-cream: #fff8e7;
+  --color-sun: #ffd23f;
+  --color-sun-deep: #ffb703;
+  --color-coral: #ff6b6b;
+  --color-pink: #ff8fab;
+  --color-mint: #06d6a0;
+  --color-grape: #a66cff;
+  --color-ocean: #4d96ff;
+  --color-mobilepay: #5a78ff;
+
+  --shadow-pop: 0 6px 0 0 rgb(43 45 66 / 0.9);
+  --shadow-pop-sm: 0 4px 0 0 rgb(43 45 66 / 0.9);
+  --shadow-soft: 0 18px 40px -18px rgb(43 45 66 / 0.35);
+
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-wiggle: wiggle 0.6s ease-in-out;
+  --animate-spin-slow: spin 40s linear infinite;
+  --animate-bob: bob 3s ease-in-out infinite;
+  --animate-pop-in: pop-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+@keyframes float {
+  0%, 100% { transform: translateY(0) rotate(-3deg); }
+  50% { transform: translateY(-18px) rotate(3deg); }
+}
+@keyframes bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+@keyframes wiggle {
+  0%, 100% { transform: rotate(0); }
+  25% { transform: rotate(-6deg) scale(1.05); }
+  75% { transform: rotate(6deg) scale(1.05); }
+}
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.6) translateY(20px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes drift {
+  from { transform: translateX(-30vw); }
+  to { transform: translateX(130vw); }
+}
+@keyframes blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.1); }
+}
+@keyframes rise {
+  0% { transform: translateY(0) rotate(0); opacity: 0; }
+  10% { opacity: 1; }
+  100% { transform: translateY(-110vh) rotate(360deg); opacity: 0; }
+}
+@keyframes rainbow-draw {
+  from { stroke-dashoffset: 1000; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@keyframes confetti-fall {
+  0% { transform: translate(0, 0) rotate(0); opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); opacity: 0; }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+h1, h2, h3, h4, .font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+::selection {
+  background: var(--color-sun);
+}
+
+/* Knapper i "klistermærke"-stil */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 3px solid var(--color-ink);
+  border-radius: 999px;
+  padding: 0.7rem 1.4rem;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.05rem;
+  box-shadow: var(--shadow-pop-sm);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s;
+  cursor: pointer;
+  user-select: none;
+}
+.btn:hover {
+  transform: translateY(-2px) rotate(-1deg);
+  box-shadow: 0 6px 0 0 rgb(43 45 66 / 0.9);
+}
+.btn:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 0 rgb(43 45 66 / 0.9);
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+.btn-sun { background: var(--color-sun); color: var(--color-ink); }
+.btn-coral { background: var(--color-coral); color: white; }
+.btn-white { background: white; color: var(--color-ink); }
+.btn-mint { background: var(--color-mint); color: var(--color-ink); }
+.btn-mobilepay { background: var(--color-mobilepay); color: white; }
+
+.card {
+  background: white;
+  border: 3px solid var(--color-ink);
+  border-radius: 1.5rem;
+  box-shadow: var(--shadow-pop);
+}
+
+.input {
+  width: 100%;
+  border: 3px solid var(--color-ink);
+  border-radius: 1rem;
+  padding: 0.65rem 0.9rem;
+  background: white;
+  font-size: 1rem;
+  outline: none;
+  transition: box-shadow 0.15s;
+}
+.input:focus {
+  box-shadow: 0 0 0 4px var(--color-sun);
+}
+
+.wavy-underline {
+  text-decoration: underline wavy var(--color-coral);
+  text-underline-offset: 6px;
+  text-decoration-thickness: 3px;
+}
+
+/* Scroll-animation: elementer "popper" ind når de kommer til syne */
+.reveal {
+  opacity: 0;
+  transform: translateY(28px) scale(0.97);
+  transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .reveal { opacity: 1; transform: none; }
+  /* Skyer står stille, men pænt fordelt */
+  .drifter { left: var(--x) !important; animation: none !important; }
 }
