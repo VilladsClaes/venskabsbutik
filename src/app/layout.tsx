@@ -1,12 +1,13 @@
 import type { Metadata, Viewport } from "next";
 import { Fredoka, Nunito } from "next/font/google";
 import "./globals.css";
+import { SITE_URL } from "@/lib/site";
 
 const fredoka = Fredoka({ subsets: ["latin"], variable: "--font-fredoka", weight: ["400", "500", "600", "700"] });
 const nunito = Nunito({ subsets: ["latin"], variable: "--font-nunito" });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.villadsclaes.dk"),
+  metadataBase: new URL(SITE_URL),
   title: {
     default: "Venskabsbutikken – køb et venskab hos Villads Claes",
     template: "%s · Venskabsbutikken",

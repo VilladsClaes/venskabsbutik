@@ -7,6 +7,7 @@ import { db, schema as s } from "@/db";
 import { ORDER_STATUSES } from "@/db/schema";
 import { formatAmount, formatKr } from "@/lib/money";
 import { STATUS_INFO } from "@/lib/order-status";
+import { SITE_URL } from "@/lib/site";
 
 export default async function OrderDetail({ params }: PageProps<"/admin/ordrer/[id]">) {
   const { id } = await params;
@@ -16,8 +17,7 @@ export default async function OrderDetail({ params }: PageProps<"/admin/ordrer/[
   });
   if (!order) notFound();
   const paid = order.payments.reduce((n, p) => n + p.amount, 0);
-  const site = process.env.NEXT_PUBLIC_SITE_URL ?? "";
-  const customerLink = `${site}/ordre/${order.orderNumber}?k=${order.accessToken}`;
+  const customerLink = `${SITE_URL}/ordre/${order.orderNumber}?k=${order.accessToken}`;
 
   return (
     <div className="space-y-6">

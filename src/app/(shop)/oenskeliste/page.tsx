@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { DriftingClouds } from "@/components/sky";
 import { WishlistView } from "@/components/wishlist-view";
 import { getShopProducts } from "@/lib/queries";
+import { SITE_URL } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "Ønskeliste",
@@ -19,7 +20,6 @@ export default async function WishlistPage({ searchParams }: PageProps<"/oenskel
           .slice(0, 50)
       : null;
   const products = await getShopProducts();
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.villadsclaes.dk";
 
   return (
     <>
@@ -31,7 +31,7 @@ export default async function WishlistPage({ searchParams }: PageProps<"/oenskel
         </div>
       </section>
       <div className="mx-auto max-w-6xl px-4 py-10">
-        <WishlistView products={products} sharedSlugs={shared} siteUrl={siteUrl} />
+        <WishlistView products={products} sharedSlugs={shared} siteUrl={SITE_URL} />
       </div>
     </>
   );

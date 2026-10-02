@@ -1,6 +1,6 @@
 # 🌞 Venskabsbutikken
 
-Villads Claes' webshop med venskaber til salg – flyttet fra Google Sites til sit eget domæne, **www.villadsclaes.dk**.
+Villads Claes' webshop med venskaber til salg – flyttet fra Google Sites til sit eget domæne, **venskab.villadsclaes.dk**.
 
 ## Teknik
 
@@ -71,7 +71,7 @@ Alle beløb gemmes i øre (540 = 5,40 kr.).
 
 Den gamle idé om at **prisen er varenummeret** (5,4 = lussing) er bevaret og vises på produkterne.
 
-## Sæt den i drift på www.villadsclaes.dk
+## Sæt den i drift på venskab.villadsclaes.dk
 
 Anbefalet (gratis til en hobbybutik): **Vercel** til hjemmesiden + **Turso** til databasen.
 
@@ -83,7 +83,9 @@ Anbefalet (gratis til en hobbybutik): **Vercel** til hjemmesiden + **Turso** til
    ```
 4. Importér projektet på [vercel.com](https://vercel.com) og sæt miljøvariablerne fra `.env.example`
    (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `ADMIN_PASSWORD`, `SESSION_SECRET`, `NEXT_PUBLIC_SITE_URL`).
-5. Tilføj domænet `www.villadsclaes.dk` i Vercel og ret DNS hos din domæneudbyder som Vercel angiver.
+5. Tilføj domænet `venskab.villadsclaes.dk` i Vercel og opret en CNAME-post for `venskab` hos Simply.com med den værdi, Vercel angiver.
+
+`www.villadsclaes.dk` er reserveret til en fælles landingsside for Villads' sites.
 
 ## Næste skridt
 

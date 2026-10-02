@@ -1,11 +1,12 @@
 import type { MetadataRoute } from "next";
 import { eq } from "drizzle-orm";
 import { db, schema as s } from "@/db";
+import { SITE_URL } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const site = process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.villadsclaes.dk";
+  const site = SITE_URL;
   const products = await db
     .select({ slug: s.products.slug, updatedAt: s.products.updatedAt })
     .from(s.products)

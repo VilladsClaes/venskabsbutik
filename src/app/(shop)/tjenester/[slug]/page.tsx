@@ -10,8 +10,9 @@ import { DriftingClouds } from "@/components/sky";
 import { TestimonialForm } from "@/components/testimonial-form";
 import { YouTube } from "@/components/youtube";
 import { getProductBySlug, getShopProducts } from "@/lib/queries";
+import { SITE_URL } from "@/lib/site";
 
-const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.villadsclaes.dk";
+const SITE = SITE_URL;
 
 function lowestPrice(p: { price: number; variants: { price: number | null }[] }) {
   const prices = p.variants.map((v) => v.price ?? p.price);

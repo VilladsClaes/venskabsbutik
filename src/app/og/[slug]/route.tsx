@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { ImageResponse } from "next/og";
 import { getProductBySlug } from "@/lib/queries";
 import { formatKr } from "@/lib/money";
+import { SITE_HOST } from "@/lib/site";
 
 // Delingsbillede der vises, når et produkt deles på Facebook, Messenger, Ønskeskyen m.fl.
 
@@ -117,7 +118,7 @@ export async function GET(_req: Request, { params }: RouteContext<"/og/[slug]">)
               </div>
             )}
             <div style={{ display: "flex", marginTop: 40, fontSize: 30, color: "#5c5f7a" }}>
-              🌞 Venskabsbutikken · villadsclaes.dk
+              {`🌞 Venskabsbutikken · ${SITE_HOST}`}
             </div>
           </div>
         </div>
