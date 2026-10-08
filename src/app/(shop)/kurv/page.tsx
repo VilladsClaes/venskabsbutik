@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Checkout, type CatalogEntry } from "@/components/checkout";
 import { db } from "@/db";
+import { getPaymentConfig } from "@/lib/payments";
 import { getSettings } from "@/lib/queries";
 
 export const metadata: Metadata = { title: "Din kurv", robots: { index: false } };
@@ -16,6 +17,7 @@ export default async function CartPage() {
     }),
     getSettings(),
   ]);
+  const payCfg = getPaymentConfig(settings);
   const catalog: Record<number, CatalogEntry> = Object.fromEntries(
     products.map((p) => [
       p.id,
@@ -35,7 +37,11 @@ export default async function CartPage() {
       <h1 className="mb-8 text-5xl font-bold">
         Din kurv <span className="inline-block animate-float" aria-hidden="true">🧺</span>
       </h1>
-      <Checkout catalog={catalog} mobilepay={settings.mobilepayNumber ?? "60614309"} />
+      <Checkout
+        catalog={catalog}
+        methods={payCfg.enabled}
+        coins={payCfg.wallets.map((w) => ({ coin: w.coin, network: w.network }))}
+      />
     </div>
   );
 }

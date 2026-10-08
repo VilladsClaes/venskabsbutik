@@ -6,11 +6,12 @@ import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db, schema as s } from "@/db";
-import { MEDIA_KINDS, ORDER_STATUSES, PRICE_KINDS, QUESTION_KINDS, TESTIMONIAL_STATUSES } from "@/db/schema";
+import { MEDIA_KINDS, ORDER_STATUSES, PAYMENT_METHODS, PRICE_KINDS, QUESTION_KINDS, TESTIMONIAL_STATUSES } from "@/db/schema";
 import { destroySession, requireAdmin } from "@/lib/auth";
 import { fromLocalInput } from "@/lib/dates";
 import { sendStatusEmail } from "@/lib/email";
 import { parseKr } from "@/lib/money";
+import { registerPayment } from "@/lib/order-payments";
 import { saveUpload } from "@/lib/upload";
 
 function refresh() {
@@ -57,20 +58,14 @@ export async function addPayment(orderId: number, form: FormData) {
   await requireAdmin();
   const amount = parseKr(String(form.get("amount") ?? ""));
   if (!amount) return;
-  const order = await db.query.orders.findFirst({ where: eq(s.orders.id, orderId), with: { payments: true } });
-  if (!order) return;
-  await db.insert(s.payments).values({
+  const method = String(form.get("method") ?? "mobilepay") as (typeof PAYMENT_METHODS)[number];
+  await registerPayment({
     orderId,
     amount,
-    method: "mobilepay",
-    reference: String(form.get("reference") ?? "").slice(0, 200),
-    note: String(form.get("note") ?? "").slice(0, 500),
+    method: PAYMENT_METHODS.includes(method) ? method : "mobilepay",
+    reference: String(form.get("reference") ?? ""),
+    note: String(form.get("note") ?? ""),
   });
-  const paid = order.payments.reduce((n, p) => n + p.amount, 0) + amount;
-  if (order.status === "afventer_betaling" && paid >= order.total) {
-    await db.update(s.orders).set({ status: "betalt", paidAt: new Date() }).where(eq(s.orders.id, orderId));
-    notifyStatus(orderId);
-  }
   refresh();
 }
 
@@ -272,17 +267,27 @@ export async function toggleProduct(id: number, field: "active" | "featured") {
 
 /* ---------- Indstillinger ---------- */
 
-const SETTING_KEYS = ["mobilepayNumber", "mobilepayName", "contactPhone", "contactEmail", "introVideo"] as const;
+const SETTING_KEYS = [
+  "mobilepayNumber",
+  "mobilepayName",
+  "contactPhone",
+  "contactEmail",
+  "introVideo",
+  "bankReg",
+  "bankAccount",
+  "bankName",
+  "paypalMe",
+] as const;
 
 export async function saveSettings(form: FormData) {
   await requireAdmin();
-  for (const key of SETTING_KEYS) {
-    const value = String(form.get(key) ?? "").trim().slice(0, 300);
-    await db
-      .insert(s.settings)
-      .values({ key, value })
-      .onConflictDoUpdate({ target: s.settings.key, set: { value } });
-  }
+  const upsert = (key: string, value: string) =>
+    db.insert(s.settings).values({ key, value }).onConflictDoUpdate({ target: s.settings.key, set: { value } });
+  for (const key of SETTING_KEYS) await upsert(key, String(form.get(key) ?? "").trim().slice(0, 300));
+  // Tegnebøger: én pr. linje, "MØNT | netværk | adresse"
+  await upsert("cryptoWallets", String(form.get("cryptoWallets") ?? "").trim().slice(0, 3000));
+  const methods = PAYMENT_METHODS.filter((m) => form.get(`method_${m}`) === "on");
+  await upsert("paymentMethods", methods.join(","));
   refresh();
 }
 

@@ -2,12 +2,18 @@
 
 import { randomBytes } from "node:crypto";
 import { asc, eq, inArray, or } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { z } from "zod";
 import { db, schema as s } from "@/db";
 import { DAILY_BONUS_SLUG, pickDaily } from "@/lib/daily";
 import { sendOrderEmails } from "@/lib/email";
+import { cryptoAmount, cryptoRateDkk, getPaymentConfig, STRIPE_MIN_OERE } from "@/lib/payments";
 import { getSettings } from "@/lib/queries";
+import { createCheckoutSession } from "@/lib/stripe";
+import { safeEqual } from "@/lib/tokens";
+import { PAYMENT_METHODS, type PaymentDetails } from "@/db/schema";
 
 /* ---------- Bestilling ---------- */
 
@@ -20,6 +26,11 @@ const orderSchema = z.object({
     allowMention: z.boolean(),
   }),
   note: z.string().trim().max(2000),
+  payment: z.object({
+    method: z.enum(PAYMENT_METHODS),
+    barterOffer: z.string().trim().max(1000).optional(),
+    cryptoCoin: z.string().trim().max(10).optional(),
+  }),
   gift: z
     .object({
       enabled: z.boolean(),
@@ -52,12 +63,19 @@ function prettyAnswer(kind: string, value: string) {
 }
 
 export type OrderInput = z.infer<typeof orderSchema>;
-export type OrderResult = { ok: true; orderNumber: string; token: string } | { ok: false; error: string };
+export type OrderResult =
+  | { ok: true; orderNumber: string; token: string; redirectUrl?: string }
+  | { ok: false; error: string };
 
 export async function createOrder(input: OrderInput): Promise<OrderResult> {
   const parsed = orderSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Ugyldige oplysninger" };
-  const { customer, items, note, gift } = parsed.data;
+  const { customer, items, note, gift, payment } = parsed.data;
+  const settings = await getSettings();
+  const payCfg = getPaymentConfig(settings);
+  if (!payCfg.enabled.includes(payment.method)) return { ok: false, error: "Den betalingsmåde er ikke tilgængelig lige nu" };
+  if (payment.method === "venskab" && (payment.barterOffer ?? "").length < 5)
+    return { ok: false, error: "Fortæl hvad du vil give til gengæld 💛" };
   if (gift?.enabled && !gift.recipient) return { ok: false, error: "Skriv navnet på den, gaven er til" };
   if (!customer.email && !customer.phone)
     return { ok: false, error: "Skriv enten din e-mail eller dit telefonnummer, så jeg kan kontakte dig" };
@@ -137,12 +155,32 @@ export async function createOrder(input: OrderInput): Promise<OrderResult> {
   }
 
   const total = lines.reduce((n, l) => n + (l.lineTotal ?? 0), 0);
+  if (payment.method === "stripe" && total < STRIPE_MIN_OERE)
+    return { ok: false, error: "Kortbetaling kræver mindst 2,50 kr. – vælg en anden betalingsmåde" };
+
+  let paymentDetails: PaymentDetails | null = null;
+  if (payment.method === "venskab") paymentDetails = { barterOffer: payment.barterOffer };
+  if (payment.method === "crypto") {
+    const wallet = payCfg.wallets.find((w) => w.coin === payment.cryptoCoin) ?? payCfg.wallets[0];
+    const rate = await cryptoRateDkk(wallet.coin);
+    if (!rate) return { ok: false, error: "Kunne ikke hente kryptokursen lige nu – prøv igen om lidt" };
+    paymentDetails = {
+      crypto: {
+        coin: wallet.coin,
+        network: wallet.network,
+        address: wallet.address,
+        amount: cryptoAmount(wallet.coin, total, rate),
+        rateDkk: rate,
+        quotedAt: new Date().toISOString(),
+      },
+    };
+  }
   const token = randomBytes(18).toString("base64url");
   const giftToken = gift?.enabled ? randomBytes(18).toString("base64url") : null;
   const email = customer.email.toLowerCase() || null;
   const phone = customer.phone.replace(/\s/g, "") || null;
 
-  const orderNumber = await db.transaction(async (tx) => {
+  const created = await db.transaction(async (tx) => {
     // Genkend kunder der har købt før (på e-mail eller telefon)
     const matchers = [email ? eq(s.customers.email, email) : undefined, phone ? eq(s.customers.phone, phone) : undefined].filter(
       (m) => m !== undefined,
@@ -181,23 +219,40 @@ export async function createOrder(input: OrderInput): Promise<OrderResult> {
         giftRecipient: gift?.enabled ? gift.recipient : null,
         giftMessage: gift?.enabled ? gift.message : null,
         giftToken,
+        paymentMethod: payment.method,
+        paymentDetails,
       })
       .returning({ id: s.orders.id });
     const number = `VC-${1000 + order.id}`;
     await tx.update(s.orders).set({ orderNumber: number }).where(eq(s.orders.id, order.id));
     await tx.insert(s.orderItems).values(lines.map((l) => ({ ...l, orderId: order.id })));
-    return number;
+    return { number, id: order.id };
   });
+  const orderNumber = created.number;
+
+  // Kortbetaling: send kunden videre til Stripes betalingsside
+  let redirectUrl: string | undefined;
+  if (payment.method === "stripe") {
+    try {
+      const session = await createCheckoutSession({ id: created.id, orderNumber, accessToken: token, total, email });
+      await db.update(s.orders).set({ stripeSessionId: session.id }).where(eq(s.orders.id, created.id));
+      redirectUrl = session.url;
+    } catch (e) {
+      console.error("Stripe fejlede", e);
+      // Ordren findes stadig – kunden kan prøve igen eller vælge en anden betalingsmåde på ordresiden
+    }
+  }
 
   // Bekræftelser sendes efter svaret, så kunden ikke venter på e-mailen
   after(async () => {
-    const settings = await getSettings();
     await sendOrderEmails(
       {
         orderNumber,
         accessToken: token,
         total,
         status: "afventer_betaling",
+        paymentMethod: payment.method,
+        paymentDetails,
         isGift: !!gift?.enabled,
         giftRecipient: gift?.recipient ?? null,
         customer: { name: customer.name, email, phone },
@@ -209,12 +264,12 @@ export async function createOrder(input: OrderInput): Promise<OrderResult> {
           isBonus: !!l.isBonus,
         })),
       },
-      settings.mobilepayNumber ?? "60614309",
+      payCfg,
       settings.contactEmail,
     );
   });
 
-  return { ok: true, orderNumber, token };
+  return { ok: true, orderNumber, token, redirectUrl };
 }
 
 /* ---------- Anmeldelser ---------- */
@@ -239,4 +294,67 @@ export async function submitTestimonial(_prev: TestimonialState, form: FormData)
   if (!product) return { error: "Produktet findes ikke" };
   await db.insert(s.testimonials).values({ ...data, emoji: data.emoji || "😊", status: "pending" });
   return { ok: true };
+}
+
+/* ---------- Betaling fra ordresiden ---------- */
+
+async function orderByToken(orderNumber: string, token: string) {
+  const order = await db.query.orders.findFirst({
+    where: eq(s.orders.orderNumber, orderNumber),
+    with: { customer: { columns: { email: true } } },
+  });
+  if (!order || !safeEqual(token, order.accessToken)) return null;
+  return order;
+}
+
+/** Kunden skifter betalingsmåde, mens ordren stadig afventer betaling */
+export async function switchPaymentMethod(orderNumber: string, token: string, form: FormData) {
+  const order = await orderByToken(orderNumber, token);
+  if (!order || order.status !== "afventer_betaling") return;
+  const method = String(form.get("method")) as (typeof PAYMENT_METHODS)[number];
+  const cfg = getPaymentConfig(await getSettings());
+  if (!cfg.enabled.includes(method)) return;
+  let paymentDetails: PaymentDetails | null = null;
+  if (method === "venskab") {
+    const offer = String(form.get("barterOffer") ?? "").trim().slice(0, 1000);
+    if (offer.length < 5) return;
+    paymentDetails = { barterOffer: offer };
+  }
+  if (method === "crypto") {
+    const coin = String(form.get("cryptoCoin") ?? "");
+    const wallet = cfg.wallets.find((w) => w.coin === coin) ?? cfg.wallets[0];
+    const rate = await cryptoRateDkk(wallet.coin);
+    if (!rate) return;
+    paymentDetails = {
+      crypto: {
+        coin: wallet.coin,
+        network: wallet.network,
+        address: wallet.address,
+        amount: cryptoAmount(wallet.coin, order.total, rate),
+        rateDkk: rate,
+        quotedAt: new Date().toISOString(),
+      },
+    };
+  }
+  await db.update(s.orders).set({ paymentMethod: method, paymentDetails }).where(eq(s.orders.id, order.id));
+  if (method === "stripe") await startStripePayment(orderNumber, token);
+  revalidatePath(`/ordre/${orderNumber}`);
+}
+
+/** Opretter en ny Stripe-betalingsside og sender kunden derhen */
+export async function startStripePayment(orderNumber: string, token: string) {
+  const order = await orderByToken(orderNumber, token);
+  if (!order || order.status !== "afventer_betaling" || order.total < STRIPE_MIN_OERE) return;
+  const session = await createCheckoutSession({
+    id: order.id,
+    orderNumber: order.orderNumber,
+    accessToken: order.accessToken,
+    total: order.total,
+    email: order.customer.email,
+  });
+  await db
+    .update(s.orders)
+    .set({ stripeSessionId: session.id, paymentMethod: "stripe" })
+    .where(eq(s.orders.id, order.id));
+  redirect(session.url);
 }

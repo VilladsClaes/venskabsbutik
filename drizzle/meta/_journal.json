@@ -15,6 +15,13 @@
       "when": 1790970953238,
       "tag": "0001_oplevelser",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791459368545,
+      "tag": "0002_betalinger",
+      "breakpoints": true
     }
   ]
 }

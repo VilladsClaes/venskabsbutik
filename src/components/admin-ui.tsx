@@ -2,6 +2,8 @@ import Link from "next/link";
 import type { OrderStatus } from "@/db/schema";
 import { formatKr } from "@/lib/money";
 import { STATUS_INFO } from "@/lib/order-status";
+import { METHOD_INFO } from "@/lib/payments";
+import type { PaymentMethod } from "@/db/schema";
 
 export function StatusPill({ status }: { status: OrderStatus }) {
   const s = STATUS_INFO[status];
@@ -43,6 +45,7 @@ export function OrderTable({
     status: Parameters<typeof StatusPill>[0]["status"];
     total: number;
     createdAt: Date;
+    paymentMethod?: PaymentMethod;
     customer: { name: string };
   }[];
 }) {
@@ -72,7 +75,14 @@ export function OrderTable({
               <td className="px-4 py-2">
                 <StatusPill status={o.status} />
               </td>
-              <td className="whitespace-nowrap px-4 py-2 text-right font-display font-bold">{formatKr(o.total)}</td>
+              <td className="whitespace-nowrap px-4 py-2 text-right font-display font-bold">
+                {o.paymentMethod && (
+                  <span className="mr-1" title={METHOD_INFO[o.paymentMethod].label}>
+                    {METHOD_INFO[o.paymentMethod].emoji}
+                  </span>
+                )}
+                {formatKr(o.total)}
+              </td>
             </tr>
           ))}
         </tbody>

@@ -3,11 +3,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { CopyButton } from "@/components/copy-button";
+import { PaymentPanel } from "@/components/payment-panel";
 import { Rainbow, Sun } from "@/components/sky";
 import { db, schema as s } from "@/db";
-import { formatAmount, formatKr } from "@/lib/money";
+import { formatKr } from "@/lib/money";
 import { STATUS_INFO } from "@/lib/order-status";
 import { friendshipLevel } from "@/lib/friendship";
+import { getPaymentConfig } from "@/lib/payments";
 import { getSettings, SOLD_STATUSES } from "@/lib/queries";
 import { SITE_URL } from "@/lib/site";
 import { safeEqual } from "@/lib/tokens";
@@ -16,7 +18,7 @@ export const metadata: Metadata = { title: "Din ordre", robots: { index: false }
 
 export default async function OrderPage({ params, searchParams }: PageProps<"/ordre/[nummer]">) {
   const { nummer } = await params;
-  const { k } = await searchParams;
+  const { k, betalt } = await searchParams;
   const order = await db.query.orders.findFirst({
     where: eq(s.orders.orderNumber, decodeURIComponent(nummer)),
     with: { items: true, customer: { columns: { id: true, name: true } } },
@@ -24,6 +26,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/or
   if (!order || !safeEqual(k, order.accessToken)) notFound();
 
   const settings = await getSettings();
+  const payCfg = getPaymentConfig(settings);
   const mp = settings.mobilepayNumber ?? "60614309";
   const status = STATUS_INFO[order.status];
   const waiting = order.status === "afventer_betaling";
@@ -54,35 +57,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/or
           <p className="mt-2 text-ink-soft">{status.customerText}</p>
         </div>
 
-        {waiting && (
-          <section className="card mt-10 animate-pop-in overflow-hidden" aria-labelledby="betal">
-            <div className="bg-mobilepay px-6 py-4 text-white">
-              <h2 id="betal" className="text-2xl font-bold">
-                💙 Betal med MobilePay
-              </h2>
-              <p className="font-semibold text-white/90">Åbn MobilePay-appen og send en betaling sådan her:</p>
-            </div>
-            <dl className="divide-y-2 divide-dashed divide-ink/20">
-              {[
-                { k: "1. Send til nummer", v: mp, copy: mp },
-                { k: "2. Beløb", v: `${formatAmount(order.total)} kr.`, copy: formatAmount(order.total) },
-                { k: "3. Skriv i beskeden", v: order.orderNumber, copy: order.orderNumber },
-              ].map((row) => (
-                <div key={row.k} className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
-                  <dt className="font-semibold text-ink-soft">{row.k}</dt>
-                  <dd className="flex items-center gap-3">
-                    <span className="font-display text-2xl font-bold">{row.v}</span>
-                    <CopyButton value={row.copy} label={row.k} />
-                  </dd>
-                </div>
-              ))}
-            </dl>
-            <p className="bg-[#fff3b0] px-6 py-4 text-sm font-semibold">
-              ☝️ Husk ordrenummeret i beskeden – så ved jeg, at betalingen er fra dig. Når jeg har modtaget den, går jeg i
-              gang og kontakter dig.
-            </p>
-          </section>
-        )}
+        {waiting && <PaymentPanel order={order} cfg={payCfg} justPaidWithStripe={betalt === "1"} />}
 
         <section className="card mt-8 p-6">
           <h2 className="text-2xl font-bold">Det har du bestilt</h2>

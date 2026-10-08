@@ -7,6 +7,7 @@ import { db, schema as s } from "@/db";
 import { ORDER_STATUSES } from "@/db/schema";
 import { formatAmount, formatKr } from "@/lib/money";
 import { STATUS_INFO } from "@/lib/order-status";
+import { METHOD_INFO, METHOD_ORDER } from "@/lib/payments";
 import { SITE_URL } from "@/lib/site";
 
 export default async function OrderDetail({ params }: PageProps<"/admin/ordrer/[id]">) {
@@ -154,6 +155,28 @@ export default async function OrderDetail({ params }: PageProps<"/admin/ordrer/[
 
           <section className="card p-5">
             <h2 className="text-xl font-bold">Betalinger 💙</h2>
+            <p className="mt-2 rounded-xl px-3 py-2 font-bold text-white" style={{ background: METHOD_INFO[order.paymentMethod].color }}>
+              {METHOD_INFO[order.paymentMethod].emoji} Valgt: {METHOD_INFO[order.paymentMethod].label}
+            </p>
+            {order.paymentDetails?.barterOffer && (
+              <p className="mt-2 rounded-xl bg-[#ffe5ec] p-3 text-sm">
+                <strong>Byttetilbud:</strong> “{order.paymentDetails.barterOffer}”
+              </p>
+            )}
+            {order.paymentDetails?.crypto && (
+              <p className="mt-2 break-all rounded-xl bg-cream p-3 text-sm">
+                <strong>
+                  {order.paymentDetails.crypto.amount} {order.paymentDetails.crypto.coin}
+                </strong>{" "}
+                ({order.paymentDetails.crypto.network}) til {order.paymentDetails.crypto.address}
+                <br />
+                Kurs {order.paymentDetails.crypto.rateDkk.toLocaleString("da-DK")} kr. ·{" "}
+                {formatDate(new Date(order.paymentDetails.crypto.quotedAt))}
+              </p>
+            )}
+            {order.stripeSessionId && (
+              <p className="mt-2 break-all text-xs text-ink-soft">Stripe: {order.stripeSessionId}</p>
+            )}
             <p className="mt-1 text-sm">
               Modtaget {formatKr(paid)} af {formatKr(order.total)}
               {paid >= order.total ? " ✅" : ""}
@@ -163,7 +186,7 @@ export default async function OrderDetail({ params }: PageProps<"/admin/ordrer/[
                 {order.payments.map((p) => (
                   <li key={p.id} className="flex items-center justify-between gap-2 rounded-xl bg-cream px-3 py-2">
                     <span>
-                      <strong>{formatKr(p.amount)}</strong> · {formatDate(p.receivedAt)}
+                      {METHOD_INFO[p.method].emoji} <strong>{formatKr(p.amount)}</strong> · {formatDate(p.receivedAt)}
                       {p.reference && ` · ${p.reference}`}
                       {p.note && <span className="block text-ink-soft">{p.note}</span>}
                     </span>
@@ -188,14 +211,27 @@ export default async function OrderDetail({ params }: PageProps<"/admin/ordrer/[
                 />
               </label>
               <label className="block text-sm font-bold">
-                MobilePay-besked / reference
+                Betalingsmåde
+                <select name="method" defaultValue={order.paymentMethod} className="input mt-1">
+                  {METHOD_ORDER.map((m) => (
+                    <option key={m} value={m}>
+                      {METHOD_INFO[m].emoji} {METHOD_INFO[m].label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="text-xs text-ink-soft">
+                Ved “Betal med venskab” registrerer du ordrens beløb, når byttet er aftalt.
+              </p>
+              <label className="block text-sm font-bold">
+                Besked / reference
                 <input name="reference" className="input mt-1" defaultValue={order.orderNumber} />
               </label>
               <label className="block text-sm font-bold">
                 Note
                 <input name="note" className="input mt-1" />
               </label>
-              <button className="btn btn-mobilepay w-full">Registrér betaling</button>
+              <button className="btn btn-mint w-full">Registrér betaling</button>
             </form>
           </section>
         </div>

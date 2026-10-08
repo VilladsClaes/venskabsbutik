@@ -135,8 +135,13 @@ export const ORDER_STATUSES = [
 ] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
-export const PAYMENT_METHODS = ["mobilepay"] as const;
+export const PAYMENT_METHODS = ["mobilepay", "bank", "paypal", "stripe", "crypto", "venskab"] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+
+export type PaymentDetails = {
+  barterOffer?: string;
+  crypto?: { coin: string; network: string; address: string; amount: string; rateDkk: number; quotedAt: string };
+};
 
 export const orders = sqliteTable(
   "orders",
@@ -151,6 +156,9 @@ export const orders = sqliteTable(
       .references(() => customers.id),
     status: text("status", { enum: ORDER_STATUSES }).notNull().default("afventer_betaling"),
     paymentMethod: text("payment_method", { enum: PAYMENT_METHODS }).notNull().default("mobilepay"),
+    /** Fx byttetilbud ved "Betal med venskab" eller kryptokurs på bestillingstidspunktet */
+    paymentDetails: text("payment_details", { mode: "json" }).$type<PaymentDetails>(),
+    stripeSessionId: text("stripe_session_id"),
     total: integer("total").notNull(),
     customerNote: text("customer_note").notNull().default(""),
     /** Gavetilstand: købt til en anden */

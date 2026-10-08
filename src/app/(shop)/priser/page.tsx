@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Reveal } from "@/components/reveal";
 import { DriftingClouds, Sun } from "@/components/sky";
 import { formatKr, priceCode } from "@/lib/money";
+import { getPaymentConfig, METHOD_INFO } from "@/lib/payments";
 import { getSettings, getShopProducts } from "@/lib/queries";
 
 export const metadata: Metadata = {
@@ -13,6 +14,7 @@ export const metadata: Metadata = {
 export default async function PricesPage() {
   const [products, settings] = await Promise.all([getShopProducts(), getSettings()]);
   const mp = settings.mobilepayNumber ?? "60614309";
+  const methods = getPaymentConfig(settings).enabled;
   const sorted = [...products].sort((a, b) => a.fromPrice - b.fromPrice);
 
   return (
@@ -47,11 +49,27 @@ export default async function PricesPage() {
           <ol className="mt-3 space-y-3 text-lg">
             <li>🛒 Læg dine venskaber i kurven – gerne flere på én gang.</li>
             <li>📝 Bestil, og få et ordrenummer, fx <strong>VC-1042</strong>.</li>
-            <li>
-              💙 Send totalbeløbet til <strong>{mp}</strong> med ordrenummeret i MobilePay-beskeden.
-            </li>
+            <li>💸 Vælg hvordan du vil betale – du får vejledningen med det samme.</li>
             <li>🎉 Når betalingen er modtaget, går jeg i gang!</li>
           </ol>
+        </Reveal>
+        <Reveal className="card p-7 md:col-span-2" delay={60}>
+          <h2 className="text-3xl font-bold">Du kan betale med</h2>
+          <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {methods.map((m) => (
+              <li
+                key={m}
+                className="flex items-center gap-3 rounded-2xl border-[3px] border-ink px-4 py-3"
+                style={{ background: `color-mix(in srgb, ${METHOD_INFO[m].color} 18%, white)` }}
+              >
+                <span className="text-3xl" aria-hidden="true">{METHOD_INFO[m].emoji}</span>
+                <span>
+                  <span className="block font-display text-lg font-bold">{METHOD_INFO[m].label}</span>
+                  <span className="block text-sm text-ink-soft">{METHOD_INFO[m].text}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
         </Reveal>
         <Reveal className="card p-7 md:col-span-2" delay={60}>
           <p className="text-lg">

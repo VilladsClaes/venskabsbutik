@@ -62,13 +62,20 @@ public/images/       Billeder hentet fra den gamle Google Site
 
 Alle beløb gemmes i øre (540 = 5,40 kr.).
 
-## Sådan fungerer betalingen (MobilePay)
+## Betaling
 
-1. Kunden lægger tjenester i kurven og bestiller → får et ordrenummer, fx **VC-1001**.
-2. Ordresiden viser nummer, beløb og besked med kopiér-knapper.
-3. Kunden sender beløbet via MobilePay med ordrenummeret i beskeden.
-4. Du åbner ordren i admin og trykker **Registrér betaling** → status skifter til *Betalt*.
+Kunden vælger betalingsmåde i kurven. Metoderne slås til og sættes op under **Admin → Indstillinger**.
 
+| Metode | Hvordan | Bekræftelse |
+|---|---|---|
+| 💙 Vipps MobilePay | Overførsel med ordrenummer i beskeden | Manuel (“Registrér betaling”) |
+| 💳 Stripe | Kort, Apple Pay, Google Pay og MobilePay på Stripes betalingsside | **Automatisk** via webhook `/api/stripe/webhook` |
+| 🅿️ PayPal | PayPal.Me-link med beløbet udfyldt | Manuel |
+| 🏦 Bankoverførsel | Reg.nr./konto + ordrenummer | Manuel |
+| 🪙 Krypto | Tegnebog + QR, beløb omregnet med dagskurs (CoinGecko) | Manuel |
+| 💛 Betal med venskab | Kunden tilbyder en tjeneste tilbage | Manuel – du godkender byttet |
+
+Kunden kan skifte betalingsmåde på ordresiden, så længe ordren afventer betaling.
 Den gamle idé om at **prisen er varenummeret** (5,4 = lussing) er bevaret og vises på produkterne.
 
 ## Sæt den i drift på venskab.villadsclaes.dk
@@ -96,7 +103,7 @@ Anbefalet (gratis til en hobbybutik): **Vercel** til hjemmesiden + **Turso** til
 | Gavetilstand med digitalt gavekort | kurven → “Det er en gave” → `/gave/<ordre>` |
 | Venskabsniveauer og venskabscertifikat | ordresiden |
 | Dagens venskab (gratis bonus), lykkehjul, live-ticker | forsiden |
-| E-mails (Resend), billedupload (Vercel Blob), statistik (Vercel Analytics) | se status i `/admin/indstillinger` |
+| E-mails (Simply SMTP), billedupload (Vercel Blob), statistik (Vercel Analytics) | se status i `/admin/indstillinger` |
 
 Ruterne på rutekortet ligger som GeoJSON i `public/routes/` (hentet fra de gamle Google My Maps).
 

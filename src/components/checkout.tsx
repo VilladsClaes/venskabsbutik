@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { createOrder } from "@/app/actions";
+import type { PaymentMethod } from "@/db/schema";
 import { formatKr } from "@/lib/money";
+import { METHOD_INFO, STRIPE_MIN_OERE } from "@/lib/payments";
 import { useCart } from "./cart";
 
 export type CatalogEntry = {
@@ -17,7 +19,15 @@ export type CatalogEntry = {
   questions: { id: number; label: string; kind: "text" | "textarea" | "date" | "datetime"; required: boolean }[];
 };
 
-export function Checkout({ catalog, mobilepay }: { catalog: Record<number, CatalogEntry>; mobilepay: string }) {
+export function Checkout({
+  catalog,
+  methods,
+  coins,
+}: {
+  catalog: Record<number, CatalogEntry>;
+  methods: PaymentMethod[];
+  coins: { coin: string; network: string }[];
+}) {
   const { lines, ready, setQuantity, remove, clear } = useCart();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -26,6 +36,9 @@ export function Checkout({ catalog, mobilepay }: { catalog: Record<number, Catal
   const [customer, setCustomer] = useState({ name: "", email: "", phone: "", nickname: "", allowMention: true });
   const [note, setNote] = useState("");
   const [gift, setGift] = useState({ enabled: false, recipient: "", message: "" });
+  const [method, setMethod] = useState<PaymentMethod>(methods[0] ?? "venskab");
+  const [barterOffer, setBarterOffer] = useState("");
+  const [cryptoCoin, setCryptoCoin] = useState(coins[0]?.coin ?? "");
 
   // Brug altid de aktuelle priser fra databasen
   const priced = useMemo(
@@ -64,6 +77,7 @@ export function Checkout({ catalog, mobilepay }: { catalog: Record<number, Catal
         customer,
         note,
         gift,
+        payment: { method, barterOffer, cryptoCoin },
         website: "",
         items: lines.map((l) => ({
           productId: l.productId,
@@ -78,7 +92,8 @@ export function Checkout({ catalog, mobilepay }: { catalog: Record<number, Catal
         return;
       }
       clear();
-      router.push(`/ordre/${res.orderNumber}?k=${res.token}`);
+      if (res.redirectUrl) window.location.href = res.redirectUrl;
+      else router.push(`/ordre/${res.orderNumber}?k=${res.token}`);
     });
   }
 
@@ -259,9 +274,74 @@ export function Checkout({ catalog, mobilepay }: { catalog: Record<number, Catal
             <span className="font-display text-xl font-bold">I alt</span>
             <span className="font-display text-4xl font-bold">{formatKr(total)}</span>
           </div>
+          <fieldset className="space-y-2">
+            <legend className="mb-2 font-display text-lg font-bold">Hvordan vil du betale?</legend>
+            {methods.map((m) => {
+              const info = METHOD_INFO[m];
+              const tooSmall = m === "stripe" && total < STRIPE_MIN_OERE;
+              const checked = method === m;
+              return (
+                <label
+                  key={m}
+                  className={`flex cursor-pointer items-center gap-3 rounded-2xl border-[3px] border-ink px-3 py-2 transition ${
+                    checked ? "bg-white shadow-[0_3px_0_0_#2b2d42]" : "bg-white/50 hover:bg-white/80"
+                  } ${tooSmall ? "cursor-not-allowed opacity-50" : ""}`}
+                >
+                  <input
+                    type="radio"
+                    name="betaling"
+                    className="h-4 w-4 accent-coral"
+                    checked={checked}
+                    disabled={tooSmall}
+                    onChange={() => setMethod(m)}
+                  />
+                  <span className="text-2xl" aria-hidden="true">{info.emoji}</span>
+                  <span className="min-w-0">
+                    <span className="block font-bold leading-tight">{info.label}</span>
+                    <span className="block text-xs text-ink-soft">
+                      {tooSmall ? "Kræver mindst 2,50 kr." : info.text}
+                    </span>
+                  </span>
+                </label>
+              );
+            })}
+          </fieldset>
+          {method === "venskab" && (
+            <label className="block animate-pop-in">
+              <span className="text-sm font-bold">
+                Hvad vil du give mig til gengæld? <span className="text-coral">*</span>
+              </span>
+              <textarea
+                className="input mt-1 min-h-20"
+                required
+                minLength={5}
+                maxLength={1000}
+                value={barterOffer}
+                onChange={(e) => setBarterOffer(e.target.value)}
+                placeholder="Fx en hjemmebagt kage, et digt tilbage eller at du hjælper mig med at flytte en sofa"
+              />
+              <span className="mt-1 block text-xs text-ink-soft">Jeg godkender byttet, før jeg går i gang.</span>
+            </label>
+          )}
+          {method === "crypto" && coins.length > 1 && (
+            <label className="block animate-pop-in">
+              <span className="text-sm font-bold">Hvilken mønt?</span>
+              <select className="input mt-1" value={cryptoCoin} onChange={(e) => setCryptoCoin(e.target.value)}>
+                {coins.map((c) => (
+                  <option key={c.coin} value={c.coin}>
+                    {c.coin} ({c.network})
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <p className="flex gap-2 rounded-2xl border-2 border-ink bg-white/70 p-3 text-sm font-semibold">
-            <span aria-hidden="true">💙</span>
-            Du betaler med MobilePay til {mobilepay} på næste side – med dit ordrenummer i beskeden.
+            <span aria-hidden="true">{METHOD_INFO[method].emoji}</span>
+            {method === "stripe"
+              ? "Du sendes videre til en sikker betalingsside hos Stripe."
+              : method === "venskab"
+                ? "Ingen penge – bare venskab. Jeg vender tilbage, når jeg har set dit tilbud."
+                : "Du får betalingsoplysningerne med dit ordrenummer på næste side."}
           </p>
           {error && (
             <p className="rounded-2xl border-2 border-ink bg-coral p-3 font-bold text-white" role="alert">
