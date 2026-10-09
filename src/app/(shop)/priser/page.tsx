@@ -66,6 +66,11 @@ export default async function PricesPage() {
                 <span>
                   <span className="block font-display text-lg font-bold">{METHOD_INFO[m].label}</span>
                   <span className="block text-sm text-ink-soft">{METHOD_INFO[m].text}</span>
+                  {m === "crypto" && (
+                    <Link href="/krypto-guide" className="text-sm font-bold text-coral underline">
+                      Første gang? Se guiden →
+                    </Link>
+                  )}
                 </span>
               </li>
             ))}

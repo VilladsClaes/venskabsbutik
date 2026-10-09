@@ -157,6 +157,9 @@ export async function PaymentPanel({
               Kurs: 1 {crypto.coin} = {crypto.rateDkk.toLocaleString("da-DK")} kr. ({amount} kr.). Send kun {crypto.coin} på{" "}
               {crypto.network}-netværket.
             </p>
+            <a href="/krypto-guide" target="_blank" className="inline-block font-bold text-coral underline">
+              🪙 Første gang med krypto? Se guiden trin for trin →
+            </a>
             {quoteAgeMin > 30 && (
               <form action={switchAction}>
                 <input type="hidden" name="method" value="crypto" />

@@ -323,6 +323,11 @@ export function Checkout({
               <span className="mt-1 block text-xs text-ink-soft">Jeg godkender byttet, før jeg går i gang.</span>
             </label>
           )}
+          {method === "crypto" && (
+            <a href="/krypto-guide" target="_blank" className="block text-sm font-bold text-coral underline">
+              🪙 Aldrig prøvet krypto før? Se guiden →
+            </a>
+          )}
           {method === "crypto" && coins.length > 1 && (
             <label className="block animate-pop-in">
               <span className="text-sm font-bold">Hvilken mønt?</span>

@@ -19,6 +19,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ...EXPERIENCES.map((e) => `/oplevelser/${e.slug}`),
     "/om-venskaber",
     "/priser",
+    "/krypto-guide",
     "/om-villads",
     "/bogen",
   ];

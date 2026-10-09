@@ -98,7 +98,7 @@ function paymentHtml(o: OrderForEmail, cfg: PaymentConfig) {
     case "crypto": {
       const c = o.paymentDetails?.crypto;
       return c
-        ? `<p>Betal med ${esc(c.coin)} (${esc(c.network)}):</p><ol><li>Send <b>${esc(c.amount)} ${esc(c.coin)}</b></li><li>til <code style="word-break:break-all">${esc(c.address)}</code></li></ol><p style="font-size:13px;color:#5c5f7a">Kursen gælder i 30 minutter. QR-kode findes på ordresiden.</p>`
+        ? `<p>Betal med ${esc(c.coin)} (${esc(c.network)}):</p><ol><li>Send <b>${esc(c.amount)} ${esc(c.coin)}</b></li><li>til <code style="word-break:break-all">${esc(c.address)}</code></li></ol><p style="font-size:13px;color:#5c5f7a">Kursen gælder i 30 minutter. QR-kode findes på ordresiden. Første gang med krypto? <a href="${SITE_URL}/krypto-guide">Se guiden</a>.</p>`
         : "";
     }
     case "venskab":

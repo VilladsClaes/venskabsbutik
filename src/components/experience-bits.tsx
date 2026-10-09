@@ -8,11 +8,13 @@ export function ExperienceHero({
   title,
   children,
   color = "#bde0fe",
+  back = { href: "/oplevelser", label: "← Alle oplevelser" },
 }: {
   emoji: string;
   title: string;
   children?: ReactNode;
   color?: string;
+  back?: { href: string; label: string };
 }) {
   return (
     <section
@@ -21,8 +23,8 @@ export function ExperienceHero({
     >
       <DriftingClouds count={3} />
       <div className="relative z-10 mx-auto max-w-4xl px-4 py-12 text-center">
-        <Link href="/oplevelser" className="text-sm font-semibold underline">
-          ← Alle oplevelser
+        <Link href={back.href} className="text-sm font-semibold underline">
+          {back.label}
         </Link>
         <p className="mt-3 animate-float text-6xl" aria-hidden="true">
           {emoji}
