@@ -29,7 +29,8 @@ export type PaymentConfig = {
   enabled: PaymentMethod[];
   mobilepayNumber?: string;
   bank?: { reg: string; account: string; name: string };
-  paypalMe?: string;
+  /** PayPal: e-mail giver en "Køb nu"-side med beløb og ordrenummer; ellers et paypal.me/.biz-link */
+  paypal?: { email?: string; profileUrl?: string; profileHasAmount: boolean };
   wallets: Wallet[];
   stripe: boolean;
 };
@@ -47,7 +48,7 @@ export function getPaymentConfig(settings: Record<string, string>): PaymentConfi
     enabled: [],
     mobilepayNumber: settings.mobilepayNumber || undefined,
     bank,
-    paypalMe: settings.paypalMe?.replace(/^https?:\/\/(www\.)?paypal\.me\//i, "").replace(/\/.*$/, "") || undefined,
+    paypal: parsePaypal(settings.paypalEmail, settings.paypalMe),
     wallets,
     stripe: !!process.env.STRIPE_SECRET_KEY,
   };
@@ -55,7 +56,7 @@ export function getPaymentConfig(settings: Record<string, string>): PaymentConfi
   const ready: Record<PaymentMethod, boolean> = {
     mobilepay: !!cfg.mobilepayNumber,
     bank: !!cfg.bank,
-    paypal: !!cfg.paypalMe,
+    paypal: !!cfg.paypal,
     stripe: cfg.stripe,
     crypto: wallets.length > 0,
     venskab: true,
@@ -64,9 +65,49 @@ export function getPaymentConfig(settings: Record<string, string>): PaymentConfi
   return cfg;
 }
 
-/** PayPal.Me-link med beløbet udfyldt */
-export function paypalLink(user: string, oere: number) {
-  return `https://www.paypal.me/${encodeURIComponent(user)}/${(oere / 100).toFixed(2)}DKK`;
+/** Læser PayPal-opsætningen: e-mail og/eller et paypal.me- eller paypal.biz-link (eller bare brugernavnet) */
+function parsePaypal(email: string | undefined, profile: string | undefined): PaymentConfig["paypal"] {
+  const mail = email?.trim();
+  const raw = profile?.trim() ?? "";
+  let profileUrl: string | undefined;
+  let profileHasAmount = false;
+  const biz = raw.match(/paypal\.(?:biz|com\/biz\/profile)\/([^/?#\s]+)/i);
+  const me = raw.match(/paypal\.me\/([^/?#\s]+)/i);
+  if (biz) profileUrl = `https://www.paypal.biz/${biz[1]}`;
+  else if (me || /^[\w.-]+$/.test(raw)) {
+    profileUrl = `https://www.paypal.me/${me ? me[1] : raw}`;
+    profileHasAmount = true;
+  }
+  if (!mail && !profileUrl) return undefined;
+  return { email: mail && /.+@.+\..+/.test(mail) ? mail : undefined, profileUrl, profileHasAmount };
+}
+
+/**
+ * Link til PayPal-betaling. Med e-mail bruges PayPals "Køb nu"-side, hvor beløb og ordrenummer
+ * er udfyldt på forhånd (virker med erhvervskonti). Ellers paypal.me (med beløb) eller paypal.biz.
+ */
+export function paypalLink(
+  cfg: NonNullable<PaymentConfig["paypal"]>,
+  order: { orderNumber: string; total: number },
+  returnUrl?: string,
+): { url: string; amountFilled: boolean } {
+  const amount = (order.total / 100).toFixed(2);
+  if (cfg.email) {
+    const p = new URLSearchParams({
+      cmd: "_xclick",
+      business: cfg.email,
+      item_name: `Venskabsbutikken – ordre ${order.orderNumber}`,
+      invoice: order.orderNumber,
+      amount,
+      currency_code: "DKK",
+      no_shipping: "1",
+      lc: "DK",
+      ...(returnUrl ? { return: returnUrl, cancel_return: returnUrl } : {}),
+    });
+    return { url: `https://www.paypal.com/cgi-bin/webscr?${p}`, amountFilled: true };
+  }
+  if (cfg.profileHasAmount) return { url: `${cfg.profileUrl}/${amount}DKK`, amountFilled: true };
+  return { url: cfg.profileUrl!, amountFilled: false };
 }
 
 const COINGECKO_IDS: Record<string, string> = {

@@ -3,6 +3,7 @@ import { startStripePayment, switchPaymentMethod } from "@/app/actions";
 import type { PaymentDetails, PaymentMethod } from "@/db/schema";
 import { formatAmount } from "@/lib/money";
 import { cryptoUri, METHOD_INFO, paypalLink, STRIPE_MIN_OERE, type PaymentConfig } from "@/lib/payments";
+import { SITE_URL } from "@/lib/site";
 import { CopyButton } from "./copy-button";
 
 type Order = {
@@ -88,18 +89,29 @@ export async function PaymentPanel({
         </>
       )}
 
-      {order.paymentMethod === "paypal" && cfg.paypalMe && (
-        <div className="space-y-4 p-6">
-          <p className="font-semibold">Tryk på knappen – beløbet er udfyldt. Skriv dit ordrenummer i beskeden til mig.</p>
-          <div className="flex flex-wrap items-center gap-3">
-            <a href={paypalLink(cfg.paypalMe, order.total)} target="_blank" rel="noreferrer" className="btn text-white" style={{ background: info.color }}>
-              🅿️ Betal {amount} kr. med PayPal
-            </a>
-            <span className="font-display text-xl font-bold">{order.orderNumber}</span>
-            <CopyButton value={order.orderNumber} label="ordrenummer" />
+      {order.paymentMethod === "paypal" && cfg.paypal && (() => {
+        const pp = paypalLink(cfg.paypal, order, `${SITE_URL}/ordre/${order.orderNumber}?k=${order.accessToken}`);
+        return (
+          <div className="space-y-4 p-6">
+            <p className="font-semibold">
+              {pp.amountFilled
+                ? "Tryk på knappen – beløb og ordrenummer er udfyldt på forhånd."
+                : `Tryk på knappen, og indtast beløbet ${amount} kr. Skriv ordrenummeret ${order.orderNumber} i beskeden.`}
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <a href={pp.url} target="_blank" rel="noreferrer" className="btn text-white" style={{ background: info.color }}>
+                🅿️ Betal {amount} kr. med PayPal
+              </a>
+              {!pp.amountFilled && (
+                <>
+                  <span className="font-display text-xl font-bold">{amount} kr.</span>
+                  <CopyButton value={amount} label="beløb" />
+                </>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {order.paymentMethod === "stripe" && (
         <div className="space-y-4 p-6">

@@ -88,9 +88,11 @@ function paymentHtml(o: OrderForEmail, cfg: PaymentConfig) {
     case "bank":
       return `<p>Betal med bankoverførsel:</p><ol><li>Reg.nr. <b>${esc(cfg.bank?.reg ?? "")}</b> · Konto <b>${esc(cfg.bank?.account ?? "")}</b></li><li>Beløb: <b>${amount}</b></li><li>Tekst til modtager: ${ref}</li></ol>`;
     case "paypal":
-      return cfg.paypalMe
-        ? `<p>Betal med PayPal – husk ${ref} i beskeden:</p>${button(paypalLink(cfg.paypalMe, o.total), `Betal ${amount} med PayPal`)}`
-        : "";
+      if (!cfg.paypal) return "";
+      {
+        const pp = paypalLink(cfg.paypal, o);
+        return `<p>Betal med PayPal${pp.amountFilled ? "" : ` – indtast ${amount} og skriv ${ref} i beskeden`}:</p>${button(pp.url, `Betal ${amount} med PayPal`)}`;
+      }
     case "stripe":
       return `<p>Du kan betale med kort på din ordreside, hvis du ikke allerede har gjort det.</p>`;
     case "crypto": {

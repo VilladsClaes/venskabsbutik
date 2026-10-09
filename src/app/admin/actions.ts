@@ -277,6 +277,7 @@ const SETTING_KEYS = [
   "bankAccount",
   "bankName",
   "paypalMe",
+  "paypalEmail",
 ] as const;
 
 export async function saveSettings(form: FormData) {

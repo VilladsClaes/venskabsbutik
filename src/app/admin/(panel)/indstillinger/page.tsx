@@ -23,7 +23,7 @@ export default async function SettingsPage() {
   const needs: Record<string, string> = {
     mobilepay: cfg.mobilepayNumber ? "" : "Mangler MobilePay-nummer",
     bank: cfg.bank ? "" : "Mangler reg.nr. og kontonummer",
-    paypal: cfg.paypalMe ? "" : "Mangler PayPal.Me-navn",
+    paypal: cfg.paypal ? "" : "Mangler PayPal-e-mail eller -link",
     stripe: cfg.stripe ? "" : "Mangler Stripe-nøgler i Vercel",
     crypto: cfg.wallets.length ? "" : "Mangler en tegnebog",
     venskab: "",
@@ -69,9 +69,15 @@ export default async function SettingsPage() {
           <Field name="bankName" label="Kontohaver (valgfrit)" value={settings.bankName} />
           <h2 className="pt-2 text-xl font-bold">🅿️ PayPal</h2>
           <Field
+            name="paypalEmail"
+            label="PayPal-e-mail (anbefalet)"
+            hint="Den e-mail din PayPal-konto er oprettet med. Så udfyldes beløb og ordrenummer automatisk for kunden."
+            value={settings.paypalEmail}
+          />
+          <Field
             name="paypalMe"
-            label="PayPal.Me-navn"
-            hint="Det der står efter paypal.me/ – find det under “Hent betalt” i PayPal-appen"
+            label="Eller dit PayPal-link"
+            hint="Fx https://www.paypal.biz/ditnavn eller paypal.me/ditnavn – bruges hvis der ikke er en e-mail"
             value={settings.paypalMe}
           />
         </section>
