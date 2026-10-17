@@ -22,6 +22,13 @@
       "when": 1791459368545,
       "tag": "0002_betalinger",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792257939703,
+      "tag": "0003_forarbejde",
+      "breakpoints": true
     }
   ]
 }

@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { addPayment, deletePayment, saveOrderNote, setOrderStatus } from "@/app/admin/actions";
 import { AdminTitle, formatDate, StatusPill } from "@/components/admin-ui";
+import { OrderWorkspace } from "@/components/order-workspace";
 import { db, schema as s } from "@/db";
 import { ORDER_STATUSES } from "@/db/schema";
 import { formatAmount, formatKr } from "@/lib/money";
@@ -14,11 +15,23 @@ export default async function OrderDetail({ params }: PageProps<"/admin/ordrer/[
   const { id } = await params;
   const order = await db.query.orders.findFirst({
     where: eq(s.orders.id, Number(id)),
-    with: { customer: true, items: true, payments: true },
+    with: {
+      customer: true,
+      items: true,
+      payments: true,
+      tasks: { orderBy: [asc(s.orderTasks.sortOrder), asc(s.orderTasks.id)] },
+      drafts: { orderBy: asc(s.orderDrafts.id) },
+    },
   });
   if (!order) notFound();
   const paid = order.payments.reduce((n, p) => n + p.amount, 0);
   const customerLink = `${SITE_URL}/ordre/${order.orderNumber}?k=${order.accessToken}`;
+  const taskSuggestions = [
+    ...order.items.filter((it) => !it.isBonus).map((it) => `Forbered: ${it.productName}`),
+    "Lever til kunden",
+    "Skriv i leveringsdagbogen",
+    "Send en hilsen bagefter",
+  ];
 
   return (
     <div className="space-y-6">
@@ -90,6 +103,13 @@ export default async function OrderDetail({ params }: PageProps<"/admin/ordrer/[
               </div>
             )}
           </section>
+
+          <OrderWorkspace
+            orderId={order.id}
+            tasks={order.tasks.map(({ id, text, done }) => ({ id, text, done }))}
+            drafts={order.drafts.map(({ id, title, body, imageUrl }) => ({ id, title, body, imageUrl }))}
+            suggestions={taskSuggestions}
+          />
 
           <section className="card p-5">
             <h2 className="text-xl font-bold">Skift status</h2>

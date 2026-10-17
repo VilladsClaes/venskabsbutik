@@ -84,6 +84,84 @@ export async function saveOrderNote(orderId: number, form: FormData) {
   refresh();
 }
 
+/* ---------- Forarbejde (tjekliste og udkast) ---------- */
+
+export async function addOrderTask(orderId: number, text: string): Promise<number | null> {
+  await requireAdmin();
+  const clean = text.trim().slice(0, 300);
+  if (!clean) return null;
+  const [{ max }] = await db
+    .select({ max: sql<number>`coalesce(max(${s.orderTasks.sortOrder}), 0)` })
+    .from(s.orderTasks)
+    .where(eq(s.orderTasks.orderId, orderId));
+  const [{ id }] = await db
+    .insert(s.orderTasks)
+    .values({ orderId, text: clean, sortOrder: max + 1 })
+    .returning({ id: s.orderTasks.id });
+  refresh();
+  return id;
+}
+
+export async function setOrderTaskDone(id: number, done: boolean) {
+  await requireAdmin();
+  await db
+    .update(s.orderTasks)
+    .set({ done, doneAt: done ? new Date() : null })
+    .where(eq(s.orderTasks.id, id));
+  refresh();
+}
+
+export async function renameOrderTask(id: number, text: string) {
+  await requireAdmin();
+  const clean = text.trim().slice(0, 300);
+  if (!clean) return;
+  await db.update(s.orderTasks).set({ text: clean }).where(eq(s.orderTasks.id, id));
+  refresh();
+}
+
+export async function deleteOrderTask(id: number) {
+  await requireAdmin();
+  await db.delete(s.orderTasks).where(eq(s.orderTasks.id, id));
+  refresh();
+}
+
+const draftSchema = z.object({
+  id: z.number().int().optional(),
+  orderId: z.number().int(),
+  title: z.string().max(200),
+  body: z.string().max(20000),
+  imageUrl: z.string().trim().max(500).nullable(),
+});
+
+export type OrderDraftData = z.infer<typeof draftSchema>;
+
+export async function saveOrderDraft(input: OrderDraftData): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
+  await requireAdmin();
+  const parsed = draftSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Ugyldigt udkast" };
+  const { id, orderId, ...values } = parsed.data;
+  let rowId = id;
+  if (id) {
+    await db
+      .update(s.orderDrafts)
+      .set(values)
+      .where(and(eq(s.orderDrafts.id, id), eq(s.orderDrafts.orderId, orderId)));
+  } else {
+    [{ id: rowId }] = await db
+      .insert(s.orderDrafts)
+      .values({ orderId, ...values })
+      .returning({ id: s.orderDrafts.id });
+  }
+  refresh();
+  return { ok: true, id: rowId! };
+}
+
+export async function deleteOrderDraft(id: number) {
+  await requireAdmin();
+  await db.delete(s.orderDrafts).where(eq(s.orderDrafts.id, id));
+  refresh();
+}
+
 /* ---------- Kunder ---------- */
 
 export async function saveCustomer(customerId: number, form: FormData) {

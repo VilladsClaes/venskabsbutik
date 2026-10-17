@@ -215,6 +215,39 @@ export const payments = sqliteTable("payments", {
     .default(sql`(unixepoch())`),
 });
 
+/** Villads' egen tjekliste til en ordre – hvad er gjort, og hvad mangler */
+export const orderTasks = sqliteTable(
+  "order_tasks",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    orderId: integer("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+    done: integer("done", { mode: "boolean" }).notNull().default(false),
+    doneAt: integer("done_at", { mode: "timestamp" }),
+    sortOrder: integer("sort_order").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [index("order_tasks_order_idx").on(t.orderId)],
+);
+
+/** Forarbejde til en ordre: udkast (fx jokes), datoer, steder og billeder – kun for admin */
+export const orderDrafts = sqliteTable(
+  "order_drafts",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    orderId: integer("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    title: text("title").notNull().default(""),
+    body: text("body").notNull().default(""),
+    imageUrl: text("image_url"),
+    ...timestamps,
+  },
+  (t) => [index("order_drafts_order_idx").on(t.orderId)],
+);
+
 /**
  * Leveringsdagbogen: hvad Villads faktisk har leveret, og hvor.
  * Driver bænkekortet, himmelglobussen, tankemåleren, lussing-hitlisten, væggen m.fl.
@@ -307,6 +340,16 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
   customer: one(customers, { fields: [orders.customerId], references: [customers.id] }),
   items: many(orderItems),
   payments: many(payments),
+  tasks: many(orderTasks),
+  drafts: many(orderDrafts),
+}));
+
+export const orderTasksRelations = relations(orderTasks, ({ one }) => ({
+  order: one(orders, { fields: [orderTasks.orderId], references: [orders.id] }),
+}));
+
+export const orderDraftsRelations = relations(orderDrafts, ({ one }) => ({
+  order: one(orders, { fields: [orderDrafts.orderId], references: [orders.id] }),
 }));
 
 export const orderItemsRelations = relations(orderItems, ({ one }) => ({
