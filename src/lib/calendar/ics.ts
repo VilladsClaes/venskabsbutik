@@ -38,14 +38,8 @@ function fold(line: string) {
   return out.join("\r\n");
 }
 
-export function buildIcs(ev: IcsEvent, method: "PUBLISH" | "REQUEST" = "PUBLISH") {
-  const organizer = process.env.SMTP_USER ?? `kalender@${HOST}`;
-  const lines = [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    "PRODID:-//Venskabsbutikken//Kalender//DA",
-    "CALSCALE:GREGORIAN",
-    `METHOD:${method}`,
+function vevent(ev: IcsEvent, organizer: string) {
+  return [
     "BEGIN:VEVENT",
     `UID:${ev.uid}@${HOST}`,
     `DTSTAMP:${stamp(new Date())}`,
@@ -66,9 +60,36 @@ export function buildIcs(ev: IcsEvent, method: "PUBLISH" | "REQUEST" = "PUBLISH"
     `DESCRIPTION:${escape(ev.title)}`,
     "END:VALARM",
     "END:VEVENT",
+  ];
+}
+
+function calendar(events: IcsEvent[], method: "PUBLISH" | "REQUEST", extra: string[] = []) {
+  const organizer = process.env.SMTP_USER ?? `kalender@${HOST}`;
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Venskabsbutikken//Kalender//DA",
+    "CALSCALE:GREGORIAN",
+    `METHOD:${method}`,
+    ...extra,
+    ...events.flatMap((ev) => vevent(ev, organizer)),
     "END:VCALENDAR",
   ];
   return lines.map(fold).join("\r\n") + "\r\n";
+}
+
+export function buildIcs(ev: IcsEvent, method: "PUBLISH" | "REQUEST" = "PUBLISH") {
+  return calendar([ev], method);
+}
+
+/** Abonnementskalender med alle events – fx til Outlook eller Apple Kalender */
+export function buildIcsFeed(events: IcsEvent[]) {
+  return calendar(events, "PUBLISH", [
+    "X-WR-CALNAME:Villads' events",
+    "X-WR-TIMEZONE:Europe/Copenhagen",
+    "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
+    "X-PUBLISHED-TTL:PT1H",
+  ]);
 }
 
 /** Link der åbner "Opret begivenhed" i Google Kalender med det hele udfyldt */

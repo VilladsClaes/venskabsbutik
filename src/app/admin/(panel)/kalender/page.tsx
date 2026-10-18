@@ -1,22 +1,24 @@
 import Link from "next/link";
 import { asc, desc, gte, lt } from "drizzle-orm";
-import { disconnectCalendar, setPrimaryCalendar } from "@/app/admin/kalender-actions";
+import { disconnectCalendar, saveOutlookIcs, setPrimaryCalendar } from "@/app/admin/kalender-actions";
 import { AdminTitle, formatDate } from "@/components/admin-ui";
 import { db, schema as s } from "@/db";
 import { CALENDAR_PROVIDERS } from "@/db/schema";
 import { upcomingMilestones } from "@/lib/birthday";
-import { getConnections, PROVIDERS, primaryProvider, redirectUri } from "@/lib/calendar";
+import { getConnections, getIcsUrl, PROVIDERS, primaryProvider, redirectUri } from "@/lib/calendar";
 import { toLocalInput } from "@/lib/dates";
 import { EVENT_TEMPLATES } from "@/lib/event-templates";
 import { getSeatsTaken } from "@/lib/events";
 import { formatKr } from "@/lib/money";
 import { getSettings } from "@/lib/queries";
+import { SITE_URL } from "@/lib/site";
 
 export default async function CalendarAdmin({ searchParams }: PageProps<"/admin/kalender">) {
   const { besked } = await searchParams;
   const now = new Date();
-  const [conns, settings, upcoming, past] = await Promise.all([
+  const [conns, icsUrl, settings, upcoming, past] = await Promise.all([
     getConnections(),
+    getIcsUrl(),
     getSettings(),
     db.query.events.findMany({ where: gte(s.events.endsAt, now), orderBy: asc(s.events.startsAt) }),
     db.query.events.findMany({ where: lt(s.events.endsAt, now), orderBy: desc(s.events.startsAt), limit: 20 }),
@@ -63,7 +65,8 @@ export default async function CalendarAdmin({ searchParams }: PageProps<"/admin/
           Ledig/optaget læses fra alle tilsluttede kalendere (kun tidsrum – aldrig titler). Events lægges i dem alle, men
           deltagerne inviteres kun fra hovedkalenderen, så de ikke får to invitationer.
         </p>
-        {CALENDAR_PROVIDERS.map((p) => {
+        {/* Outlook-login kræver en arbejds-/skolekonto – private konti bruger det publicerede link nedenfor */}
+        {CALENDAR_PROVIDERS.filter((p) => p === "google" || PROVIDERS[p].configured() || conns.some((c) => c.provider === p)).map((p) => {
           const api = PROVIDERS[p];
           const c = conns.find((x) => x.provider === p);
           return (
@@ -110,6 +113,48 @@ export default async function CalendarAdmin({ searchParams }: PageProps<"/admin/
             </div>
           );
         })}
+        <div className="space-y-2 rounded-2xl bg-cream p-3">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl" aria-hidden="true">{icsUrl ? "🟢" : "⚪"}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-bold">📅 Outlook (privat konto) – ledig/optaget</span>
+              <span className="block text-sm text-ink-soft">
+                {icsUrl ? `Læser fra ${new URL(icsUrl).host} · kun hvornår du er optaget` : "Ikke koblet på"}
+              </span>
+            </span>
+          </div>
+          <details className="text-sm" open={!icsUrl}>
+            <summary className="cursor-pointer font-bold">Sådan kobler du Outlook på</summary>
+            <ol className="mt-2 list-decimal space-y-1 pl-5">
+              <li>
+                Åbn{" "}
+                <a href="https://outlook.live.com/calendar/0/options/calendar/SharedCalendars" target="_blank" rel="noopener" className="underline">
+                  Outlook.com → Indstillinger → Kalender → Delte kalendere
+                </a>
+                .
+              </li>
+              <li>Under <b>Udgiv en kalender</b>: vælg din kalender og <b>“Kan se, hvornår jeg er optaget”</b>, og klik Udgiv.</li>
+              <li>Kopiér <b>ICS</b>-linket og sæt det ind her.</li>
+            </ol>
+          </details>
+          <form action={saveOutlookIcs} className="flex flex-wrap gap-2">
+            <input
+              name="icsUrl"
+              type="url"
+              defaultValue={icsUrl ?? ""}
+              placeholder="https://outlook.live.com/owa/calendar/…/calendar.ics"
+              className="input min-w-0 flex-1 !py-1.5 text-sm"
+              aria-label="ICS-link til din publicerede Outlook-kalender"
+            />
+            <button className="btn btn-sun !py-1.5">{icsUrl ? "Gem" : "Kobl på"}</button>
+          </form>
+          {icsUrl && <p className="text-xs text-ink-soft">Tøm feltet og klik Gem for at fjerne linket.</p>}
+          <p className="border-t border-ink/10 pt-2 text-sm">
+            <b>Se dine events i Outlook:</b> Tilføj kalender → <i>Abonner fra internettet</i> → indsæt{" "}
+            <code className="break-all rounded bg-white px-1">{SITE_URL}/kalender/feed.ics</code>
+          </p>
+        </div>
+
         {conns.length === 0 && (
           <p className="text-sm font-semibold">
             Uden en tilsluttet kalender virker events stadig – deltagerne får så en .ics-fil på mail i stedet for en invitation.

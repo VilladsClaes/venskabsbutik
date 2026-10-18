@@ -3,6 +3,7 @@ import { db, schema as s } from "@/db";
 import { CALENDAR_PROVIDERS, type CalendarProvider } from "@/db/schema";
 import { SITE_URL } from "../site";
 import { decrypt, encrypt } from "./crypto";
+import { fetchIcsBusy } from "./ics-busy";
 import { PROVIDERS, type AttendeeChanges, type Interval } from "./providers";
 
 export { PROVIDERS } from "./providers";
@@ -88,15 +89,41 @@ async function setConnectionError(conn: Connection, error: string | null) {
 const BUSY_TTL = 5 * 60_000;
 const busyCache = new Map<string, { at: number; data: Interval[] }>();
 
-/** Optagede tidsrum fra alle tilsluttede kalendere (uden titler – kun hvornår) */
-export async function getBusy(from: Date, to: Date): Promise<{ intervals: Interval[]; sources: CalendarProvider[] }> {
-  const conns = await getConnections();
-  const key = `${from.toISOString()}|${to.toISOString()}|${conns.map((c) => c.provider).join(",")}`;
-  const hit = busyCache.get(key);
-  if (hit && Date.now() - hit.at < BUSY_TTL) return { intervals: hit.data, sources: conns.map((c) => c.provider) };
+export const ICS_SETTING = "outlookIcsUrl";
 
-  const results = await Promise.all(
-    conns.map(async (c) => {
+/** Det publicerede Outlook-link (gemt krypteret, da det giver adgang til ledig/optaget) */
+export async function getIcsUrl(): Promise<string | null> {
+  const row = await db.query.settings.findFirst({ where: eq(s.settings.key, ICS_SETTING) });
+  if (!row?.value) return null;
+  try {
+    return decrypt(row.value);
+  } catch {
+    return null;
+  }
+}
+
+export async function saveIcsUrl(url: string | null) {
+  if (!url) await db.delete(s.settings).where(eq(s.settings.key, ICS_SETTING));
+  else
+    await db
+      .insert(s.settings)
+      .values({ key: ICS_SETTING, value: encrypt(url) })
+      .onConflictDoUpdate({ target: s.settings.key, set: { value: encrypt(url) } });
+  busyCache.clear();
+}
+
+export type BusySource = CalendarProvider | "outlook-ics";
+
+/** Optagede tidsrum fra alle tilsluttede kalendere (uden titler – kun hvornår) */
+export async function getBusy(from: Date, to: Date): Promise<{ intervals: Interval[]; sources: BusySource[] }> {
+  const [conns, icsUrl] = await Promise.all([getConnections(), getIcsUrl()]);
+  const sources: BusySource[] = [...conns.map((c) => c.provider), ...(icsUrl ? (["outlook-ics"] as const) : [])];
+  const key = `${from.toISOString()}|${to.toISOString()}|${sources.join(",")}`;
+  const hit = busyCache.get(key);
+  if (hit && Date.now() - hit.at < BUSY_TTL) return { intervals: hit.data, sources };
+
+  const results = await Promise.all([
+    ...conns.map(async (c) => {
       try {
         return await PROVIDERS[c.provider].busy(await accessToken(c), c.calendarId, from, to);
       } catch (e) {
@@ -104,11 +131,19 @@ export async function getBusy(from: Date, to: Date): Promise<{ intervals: Interv
         return [];
       }
     }),
-  );
+    ...(icsUrl
+      ? [
+          fetchIcsBusy(icsUrl, from, to).catch((e) => {
+            console.error("Kunne ikke læse den publicerede Outlook-kalender", e);
+            return [];
+          }),
+        ]
+      : []),
+  ]);
   const data = mergeIntervals(results.flat());
   if (busyCache.size > 50) busyCache.clear();
   busyCache.set(key, { at: Date.now(), data });
-  return { intervals: data, sources: conns.map((c) => c.provider) };
+  return { intervals: data, sources };
 }
 
 export function mergeIntervals(list: Interval[]): Interval[] {

@@ -8,7 +8,8 @@ import { z } from "zod";
 import { db, schema as s } from "@/db";
 import { CALENDAR_PROVIDERS, type CalendarProvider } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth";
-import { removeConnection, removeEventFromCalendars, syncEventToCalendars } from "@/lib/calendar";
+import { removeConnection, removeEventFromCalendars, saveIcsUrl, syncEventToCalendars } from "@/lib/calendar";
+import { fetchIcsBusy } from "@/lib/calendar/ics-busy";
 import { fromLocalInput } from "@/lib/dates";
 import { cancelEventSignups, confirmEventSignups } from "@/lib/events";
 import { parseKr } from "@/lib/money";
@@ -36,6 +37,29 @@ export async function setPrimaryCalendar(provider: CalendarProvider) {
     .values({ key: "calendarPrimary", value: provider })
     .onConflictDoUpdate({ target: s.settings.key, set: { value: provider } });
   refresh();
+}
+
+/** Gemmer linket til den publicerede Outlook-kalender – efter at have tjekket, at det kan læses */
+export async function saveOutlookIcs(form: FormData) {
+  await requireAdmin();
+  const raw = String(form.get("icsUrl") ?? "").trim();
+  if (!raw) {
+    await saveIcsUrl(null);
+    refresh();
+    back("Outlook-linket er fjernet");
+  }
+  const url = raw.replace(/^webcal:\/\//i, "https://");
+  if (!/^https:\/\/\S+$/i.test(url)) back("Linket skal starte med https:// eller webcal://");
+  let count: number;
+  try {
+    const now = new Date();
+    count = (await fetchIcsBusy(url, now, new Date(now.getTime() + 30 * 86400_000))).length;
+  } catch (e) {
+    back(`Linket kunne ikke læses: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  await saveIcsUrl(url);
+  refresh();
+  back(`Outlook er koblet på ✅ – fandt ${count} optagede tidsrum de næste 30 dage`);
 }
 
 /* ---------- Ruter: GPX eller GeoJSON -> GeoJSON ---------- */

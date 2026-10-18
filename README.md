@@ -136,12 +136,18 @@ Er ingen kalender tilsluttet, får kunden en `.ics`-fil på mail i stedet.
    Omdirigerings-URI: `https://venskab.villadsclaes.dk/api/kalender/google/callback` (og `http://localhost:3000/api/kalender/google/callback` lokalt).
 4. Sæt `GOOGLE_CLIENT_ID` og `GOOGLE_CLIENT_SECRET` i Vercel og klik **Tilslut** under `/admin/kalender`.
 
-### Tilslut Outlook
-1. Gå til [entra.microsoft.com](https://entra.microsoft.com) → *App registrations* → *New registration*.
-   Kontotyper: *Accounts in any organizational directory and personal Microsoft accounts*.
-2. Omdirigerings-URI (Web): `https://venskab.villadsclaes.dk/api/kalender/outlook/callback`.
-3. *Certificates & secrets* → ny klienthemmelighed. *API permissions* → Microsoft Graph → delegated `Calendars.ReadWrite`, `User.Read`, `offline_access`.
-4. Sæt `MICROSOFT_CLIENT_ID` og `MICROSOFT_CLIENT_SECRET` i Vercel og klik **Tilslut**.
+### Tilslut Outlook (privat konto)
+Private Microsoft-konti kan ikke registrere apps, så Outlook kobles på med et publiceret kalenderlink:
+1. Outlook.com → *Indstillinger* → *Kalender* → *Delte kalendere* → *Udgiv en kalender*.
+2. Vælg kalenderen og **“Kan se, hvornår jeg er optaget”**, klik *Udgiv*, og kopiér **ICS**-linket.
+3. Indsæt det under `/admin/kalender`. Linket gemmes krypteret og bruges kun til ledig/optaget.
+
+For at se dine events i Outlook: *Tilføj kalender* → *Abonner fra internettet* → `https://venskab.villadsclaes.dk/kalender/feed.ics`.
+
+Har du en arbejds-/skolekonto, kan du i stedet bruge fuld Outlook-synk: opret en app i
+[entra.microsoft.com](https://entra.microsoft.com) med omdirigerings-URI `…/api/kalender/outlook/callback` og
+Graph-rettighederne `Calendars.ReadWrite`, `User.Read`, `offline_access`, og sæt `MICROSOFT_CLIENT_ID` og
+`MICROSOFT_CLIENT_SECRET`.
 
 Er begge tilsluttet, læses ledig/optaget fra begge, og eventet lægges i begge – men deltagerne inviteres kun fra
 **hovedkalenderen**, så de ikke får to invitationer. Adgangsnøglerne gemmes krypteret (AES-GCM ud fra `SESSION_SECRET`).
