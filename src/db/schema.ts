@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm";
 import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import type { GeoJsonObject } from "geojson";
 
 // Alle beløb gemmes som heltal i øre (540 = 5,40 kr) for at undgå afrundingsfejl.
 
@@ -192,6 +193,8 @@ export const orderItems = sqliteTable(
     lineTotal: integer("line_total").notNull(),
     /** Gratis bonus, fx fra "Dagens venskab" */
     isBonus: integer("is_bonus", { mode: "boolean" }).notNull().default(false),
+    /** Billet til et event i kalenderen */
+    eventId: integer("event_id").references(() => events.id, { onDelete: "set null" }),
     answers: text("answers", { mode: "json" })
       .$type<{ question: string; answer: string }[]>()
       .notNull()
@@ -298,6 +301,83 @@ export const testimonials = sqliteTable(
   (t) => [index("testimonials_product_idx").on(t.productId)],
 );
 
+export const CALENDAR_PROVIDERS = ["google", "outlook"] as const;
+export type CalendarProvider = (typeof CALENDAR_PROVIDERS)[number];
+
+/** Villads' tilsluttede kalendere. Nøglerne gemmes krypteret (se lib/calendar/crypto.ts). */
+export const calendarConnections = sqliteTable("calendar_connections", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  provider: text("provider", { enum: CALENDAR_PROVIDERS }).notNull().unique(),
+  accountEmail: text("account_email").notNull().default(""),
+  refreshToken: text("refresh_token").notNull(),
+  accessToken: text("access_token"),
+  accessTokenExpiresAt: integer("access_token_expires_at", { mode: "timestamp" }),
+  /** Google: "primary" eller et kalender-id. Outlook: tom = standardkalenderen */
+  calendarId: text("calendar_id").notNull().default("primary"),
+  lastError: text("last_error"),
+  ...timestamps,
+});
+
+/** Events i kalenderen, som man kan købe sig adgang til (bow combat, gyserfilm, cykeltur …) */
+export const events = sqliteTable(
+  "events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    slug: text("slug").notNull().unique(),
+    title: text("title").notNull(),
+    emoji: text("emoji").notNull().default("🎉"),
+    color: text("color").notNull().default("#ffd23f"),
+    summary: text("summary").notNull().default(""),
+    description: text("description").notNull().default(""),
+    location: text("location").notNull().default(""),
+    startsAt: integer("starts_at", { mode: "timestamp" }).notNull(),
+    endsAt: integer("ends_at", { mode: "timestamp" }).notNull(),
+    /** Pris pr. plads i øre. 0 = gratis */
+    price: integer("price").notNull().default(0),
+    /** Antal pladser. null = ubegrænset */
+    capacity: integer("capacity"),
+    /** Fx "foedselsdag" – eventet hører til et eksisterende produkt */
+    productId: integer("product_id").references(() => products.id, { onDelete: "set null" }),
+    /** Rute til rutekortet (GeoJSON), fx en cykeltur gennem Danmark */
+    routeGeojson: text("route_geojson", { mode: "json" }).$type<GeoJsonObject>(),
+    published: integer("published", { mode: "boolean" }).notNull().default(true),
+    /** Id på kalenderposten hos hver udbyder */
+    externalIds: text("external_ids", { mode: "json" })
+      .$type<Partial<Record<CalendarProvider, string>>>()
+      .notNull()
+      .default({}),
+    syncError: text("sync_error"),
+    ...timestamps,
+  },
+  (t) => [index("events_starts_idx").on(t.startsAt)],
+);
+
+export const SIGNUP_STATUSES = ["afventer", "bekraeftet", "annulleret"] as const;
+export type SignupStatus = (typeof SIGNUP_STATUSES)[number];
+
+/** Tilmeldinger til et event. Bekræftes når ordren er betalt – så tilføjes e-mailen til kalenderposten. */
+export const eventSignups = sqliteTable(
+  "event_signups",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    eventId: integer("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    orderId: integer("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    email: text("email").notNull(),
+    seats: integer("seats").notNull().default(1),
+    status: text("status", { enum: SIGNUP_STATUSES }).notNull().default("afventer"),
+    /** Hvornår deltageren sidst blev skrevet på kalenderposten */
+    calendarSyncedAt: integer("calendar_synced_at", { mode: "timestamp" }),
+    syncError: text("sync_error"),
+    ...timestamps,
+  },
+  (t) => [index("event_signups_event_idx").on(t.eventId), index("event_signups_order_idx").on(t.orderId)],
+);
+
 export const settings = sqliteTable(
   "settings",
   {
@@ -342,6 +422,17 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
   payments: many(payments),
   tasks: many(orderTasks),
   drafts: many(orderDrafts),
+  signups: many(eventSignups),
+}));
+
+export const eventsRelations = relations(events, ({ one, many }) => ({
+  product: one(products, { fields: [events.productId], references: [products.id] }),
+  signups: many(eventSignups),
+}));
+
+export const eventSignupsRelations = relations(eventSignups, ({ one }) => ({
+  event: one(events, { fields: [eventSignups.eventId], references: [events.id] }),
+  order: one(orders, { fields: [eventSignups.orderId], references: [orders.id] }),
 }));
 
 export const orderTasksRelations = relations(orderTasks, ({ one }) => ({
@@ -355,6 +446,7 @@ export const orderDraftsRelations = relations(orderDrafts, ({ one }) => ({
 export const orderItemsRelations = relations(orderItems, ({ one }) => ({
   order: one(orders, { fields: [orderItems.orderId], references: [orders.id] }),
   product: one(products, { fields: [orderItems.productId], references: [products.id] }),
+  event: one(events, { fields: [orderItems.eventId], references: [events.id] }),
 }));
 
 export const paymentsRelations = relations(payments, ({ one }) => ({

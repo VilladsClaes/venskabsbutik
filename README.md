@@ -107,6 +107,41 @@ Anbefalet (gratis til en hobbybutik): **Vercel** til hjemmesiden + **Turso** til
 
 Ruterne på rutekortet ligger som GeoJSON i `public/routes/` (hentet fra de gamle Google My Maps).
 
+## Kalenderen og events
+
+`/kalender` viser en månedskalender med hvornår Villads er **ledig/optaget** (kun tidsrum – aldrig titler) og de
+**events** man kan købe sig adgang til: fødselsdage, bow combat, paintball, gyserfilm, drinks i parken, cykelture …
+Runde fødselsdage foreslås automatisk og linker til Fødselsdags-produktet.
+
+| Hvad | Hvor |
+|---|---|
+| Opret/ret events (dato, pris, pladser, rute som GPX/GeoJSON) | `/admin/kalender` |
+| Eventside med tilmelding og betaling | `/kalender/<slug>` |
+| Rute fra et event | vises automatisk på `/oplevelser/ruterne` |
+
+**Flowet:** Kunden melder sig til med sin e-mail og betaler (alle butikkens betalingsmåder virker). Når ordren er betalt –
+via Stripe-webhook, “Registrér betaling” eller når du sætter ordren til *Betalt* – bliver kundens e-mail tilføjet som
+deltager på kalenderposten. Google/Outlook sender selv invitationen, så eventet lander i kundens kalender og følger
+med, hvis du flytter det. Annulleres ordren, fjernes kunden igen. Deltagerne kan ikke se hinandens e-mails.
+Er ingen kalender tilsluttet, får kunden en `.ics`-fil på mail i stedet.
+
+### Tilslut Google Kalender
+1. Gå til [console.cloud.google.com](https://console.cloud.google.com) → nyt projekt → *APIs & Services* → slå **Google Calendar API** til.
+2. *OAuth consent screen*: vælg *External*, tilføj dig selv som testbruger (eller udgiv appen).
+3. *Credentials* → *Create credentials* → *OAuth client ID* → *Web application*.
+   Omdirigerings-URI: `https://venskab.villadsclaes.dk/api/kalender/google/callback` (og `http://localhost:3000/api/kalender/google/callback` lokalt).
+4. Sæt `GOOGLE_CLIENT_ID` og `GOOGLE_CLIENT_SECRET` i Vercel og klik **Tilslut** under `/admin/kalender`.
+
+### Tilslut Outlook
+1. Gå til [entra.microsoft.com](https://entra.microsoft.com) → *App registrations* → *New registration*.
+   Kontotyper: *Accounts in any organizational directory and personal Microsoft accounts*.
+2. Omdirigerings-URI (Web): `https://venskab.villadsclaes.dk/api/kalender/outlook/callback`.
+3. *Certificates & secrets* → ny klienthemmelighed. *API permissions* → Microsoft Graph → delegated `Calendars.ReadWrite`, `User.Read`, `offline_access`.
+4. Sæt `MICROSOFT_CLIENT_ID` og `MICROSOFT_CLIENT_SECRET` i Vercel og klik **Tilslut**.
+
+Er begge tilsluttet, læses ledig/optaget fra begge, og eventet lægges i begge – men deltagerne inviteres kun fra
+**hovedkalenderen**, så de ikke får to invitationer. Adgangsnøglerne gemmes krypteret (AES-GCM ud fra `SESSION_SECRET`).
+
 ## Næste skridt
 
 - Flere betalingsmetoder (kort via Stripe; automatisk MobilePay kræver en erhvervsaftale med Vipps MobilePay)

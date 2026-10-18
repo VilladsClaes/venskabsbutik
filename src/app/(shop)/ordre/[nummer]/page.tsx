@@ -12,6 +12,7 @@ import { friendshipLevel } from "@/lib/friendship";
 import { getPaymentConfig } from "@/lib/payments";
 import { getSettings, SOLD_STATUSES } from "@/lib/queries";
 import { SITE_URL } from "@/lib/site";
+import { formatEventTime } from "@/lib/events";
 import { safeEqual } from "@/lib/tokens";
 
 export const metadata: Metadata = { title: "Din ordre", robots: { index: false } };
@@ -21,7 +22,11 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/or
   const { k, betalt } = await searchParams;
   const order = await db.query.orders.findFirst({
     where: eq(s.orders.orderNumber, decodeURIComponent(nummer)),
-    with: { items: true, customer: { columns: { id: true, name: true } } },
+    with: {
+      items: true,
+      customer: { columns: { id: true, name: true } },
+      signups: { with: { event: { columns: { slug: true, title: true, emoji: true, startsAt: true, endsAt: true } } } },
+    },
   });
   if (!order || !safeEqual(k, order.accessToken)) notFound();
 
@@ -89,6 +94,34 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/or
             <span>{formatKr(order.total)}</span>
           </div>
         </section>
+
+        {order.signups.map((x) => (
+          <section key={x.id} className="card mt-8 bg-[#e8f4ff] p-6">
+            <h2 className="text-2xl font-bold">
+              {x.event.emoji} {x.event.title}
+            </h2>
+            <p className="mt-1 font-semibold first-letter:uppercase">{formatEventTime(x.event.startsAt, x.event.endsAt)}</p>
+            <p className="mt-2">
+              {x.status === "bekraeftet"
+                ? x.calendarSyncedAt
+                  ? `📅 Du er på gæstelisten! Der er sendt en kalenderinvitation til ${x.email} – så ligger eventet i din kalender.`
+                  : `📅 Du er på gæstelisten! Kalenderfilen er sendt til ${x.email}.`
+                : x.status === "annulleret"
+                  ? "Tilmeldingen er annulleret."
+                  : `⏳ Når betalingen er registreret, sender jeg en kalenderinvitation til ${x.email}.`}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <a href={`/kalender/${x.event.slug}`} className="btn btn-white !py-1.5 text-sm">
+                Se eventet
+              </a>
+              {x.status === "bekraeftet" && !x.calendarSyncedAt && (
+                <a href={`/kalender/${x.event.slug}/ics`} className="btn btn-white !py-1.5 text-sm">
+                  Hent kalenderfil
+                </a>
+              )}
+            </div>
+          </section>
+        ))}
 
         {giftUrl && (
           <section className="card mt-8 bg-[#ffe5ec] p-6">

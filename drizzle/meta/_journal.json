@@ -29,6 +29,13 @@
       "when": 1792257939703,
       "tag": "0003_forarbejde",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1792276202251,
+      "tag": "0005_kalender",
+      "breakpoints": true
     }
   ]
 }

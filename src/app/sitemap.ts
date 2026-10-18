@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { eq } from "drizzle-orm";
 import { db, schema as s } from "@/db";
+import { getUpcomingEvents } from "@/lib/events";
 import { EXPERIENCES } from "@/lib/experience-list";
 import { SITE_URL } from "@/lib/site";
 
@@ -16,6 +17,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     "",
     "/tjenester",
     "/oplevelser",
+    "/kalender",
     ...EXPERIENCES.map((e) => `/oplevelser/${e.slug}`),
     "/om-venskaber",
     "/priser",
@@ -26,5 +28,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   return [
     ...pages.map((p) => ({ url: `${site}${p}`, changeFrequency: "weekly" as const, priority: p ? 0.7 : 1 })),
     ...products.map((p) => ({ url: `${site}/tjenester/${p.slug}`, lastModified: p.updatedAt, priority: 0.8 })),
+    ...(await getUpcomingEvents()).map((e) => ({ url: `${site}/kalender/${e.slug}`, lastModified: e.updatedAt, priority: 0.7 })),
   ];
 }

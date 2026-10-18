@@ -10,6 +10,7 @@ import { MEDIA_KINDS, ORDER_STATUSES, PAYMENT_METHODS, PRICE_KINDS, QUESTION_KIN
 import { destroySession, requireAdmin } from "@/lib/auth";
 import { fromLocalInput } from "@/lib/dates";
 import { sendStatusEmail } from "@/lib/email";
+import { syncSignupsWithOrderStatus } from "@/lib/events";
 import { parseKr } from "@/lib/money";
 import { registerPayment } from "@/lib/order-payments";
 import { saveUpload } from "@/lib/upload";
@@ -39,7 +40,11 @@ export async function setOrderStatus(orderId: number, status: (typeof ORDER_STAT
       deliveredAt: status === "leveret" ? (order.deliveredAt ?? now) : order.deliveredAt,
     })
     .where(eq(s.orders.id, orderId));
-  if (status !== order.status) notifyStatus(orderId);
+  if (status !== order.status) {
+    notifyStatus(orderId);
+    // Event-billetter følger ordren: betalt = på kalenderposten, annulleret = af igen
+    after(() => syncSignupsWithOrderStatus(orderId, status));
+  }
   refresh();
 }
 

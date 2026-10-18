@@ -23,7 +23,9 @@ function getTransport() {
   return transport;
 }
 
-async function send(to: string, subject: string, html: string) {
+type Attachment = { filename: string; content: string; contentType: string };
+
+async function send(to: string, subject: string, html: string, attachments?: Attachment[]) {
   if (!emailEnabled()) return;
   try {
     await getTransport().sendMail({
@@ -31,6 +33,7 @@ async function send(to: string, subject: string, html: string) {
       to,
       subject,
       html,
+      attachments,
     });
   } catch (e) {
     console.error("E-mail fejlede", e);
@@ -143,5 +146,33 @@ export async function sendStatusEmail(o: OrderForEmail) {
     o.customer.email,
     `${s.emoji} Ordre ${o.orderNumber}: ${s.label}`,
     layout(`${s.emoji} ${s.label}`, `<p>${esc(s.customerText)}</p>${itemsTable(o)}${button(link, "Se din ordre")}`),
+  );
+}
+
+/** Bekræftelse på en eventtilmelding. Har Villads' kalender ikke inviteret deltageren, følger en .ics-fil med. */
+export async function sendEventConfirmation(input: {
+  to: string;
+  name: string;
+  title: string;
+  when: string;
+  location: string;
+  seats: number;
+  eventLink: string;
+  orderLink: string;
+  invitedByCalendar: boolean;
+  ics?: string;
+}) {
+  const calendarText = input.invitedByCalendar
+    ? "<p>📅 Du har fået en kalenderinvitation fra Villads – den ligger allerede i din kalender, og ændringer kommer automatisk med.</p>"
+    : "<p>📅 Kalenderfilen er vedhæftet – åbn den for at lægge eventet i din kalender.</p>";
+  await send(
+    input.to,
+    `Du er med: ${input.title} 🎉`,
+    layout(
+      `Du er med, ${esc(input.name.split(" ")[0])}! 🎉`,
+      `<p><b>${esc(input.title)}</b><br>${esc(input.when)}${input.location ? `<br>📍 ${esc(input.location)}` : ""}${input.seats > 1 ? `<br>👥 ${input.seats} pladser` : ""}</p>
+      ${calendarText}${button(input.eventLink, "Se eventet")}<p style="font-size:13px"><a href="${input.orderLink}">Se din ordre</a></p>`,
+    ),
+    input.ics ? [{ filename: "event.ics", content: input.ics, contentType: "text/calendar; charset=utf-8; method=REQUEST" }] : undefined,
   );
 }

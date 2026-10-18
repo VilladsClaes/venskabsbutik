@@ -4,17 +4,31 @@ import type { GeoJsonObject } from "geojson";
 import { useEffect, useMemo, useState } from "react";
 import { MapView, type MapRoute } from "./map-view";
 
-type RouteInfo = { slug: string; name: string; caption: string; color: string; lines: number };
+type RouteInfo = {
+  slug: string;
+  name: string;
+  caption: string;
+  color: string;
+  lines?: number;
+  /** Ruter fra kalenderens events har GeoJSON med direkte – de andre hentes fra /routes */
+  geojson?: GeoJsonObject;
+};
 
 export function RouteMap({ routes }: { routes: RouteInfo[] }) {
-  const [data, setData] = useState<Record<string, GeoJsonObject>>({});
+  const [fetched, setFetched] = useState<Record<string, GeoJsonObject>>({});
+  const data = useMemo(
+    () => ({ ...fetched, ...Object.fromEntries(routes.filter((r) => r.geojson).map((r) => [r.slug, r.geojson!])) }),
+    [fetched, routes],
+  );
   const [active, setActive] = useState<Set<string>>(() => new Set(routes.map((r) => r.slug)));
 
   useEffect(() => {
     let cancelled = false;
     Promise.all(
-      routes.map(async (r) => [r.slug, (await (await fetch(`/routes/${r.slug}.json`)).json()) as GeoJsonObject] as const),
-    ).then((entries) => !cancelled && setData(Object.fromEntries(entries)));
+      routes
+        .filter((r) => !r.geojson)
+        .map(async (r) => [r.slug, (await (await fetch(`/routes/${r.slug}.json`)).json()) as GeoJsonObject] as const),
+    ).then((entries) => !cancelled && setFetched(Object.fromEntries(entries)));
     return () => {
       cancelled = true;
     };
