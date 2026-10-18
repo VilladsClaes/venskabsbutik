@@ -11,7 +11,9 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
     "db:setup": "npm run db:migrate && npm run db:seed",
-    "db:seed-arkiv": "tsx src/db/seed-arkiv.ts",
+    "db:seed-arkiv": "tsx --env-file-if-exists=.env.local src/db/seed-arkiv.ts",
+    "db:krypter-arkiv": "tsx --env-file-if-exists=.env.local src/db/encrypt-archive.ts",
+    "admin:totp": "tsx src/db/totp-setup.ts",
     "db:studio": "drizzle-kit studio",
     "typecheck": "tsc --noEmit"
   },

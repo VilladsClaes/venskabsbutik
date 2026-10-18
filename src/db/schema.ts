@@ -1,8 +1,17 @@
 import { relations, sql } from "drizzle-orm";
-import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { customType, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type { GeoJsonObject } from "geojson";
+import { decryptField, encryptField } from "../lib/field-crypto";
 
 // Alle beløb gemmes som heltal i øre (540 = 5,40 kr) for at undgå afrundingsfejl.
+
+/** Tekst, der krypteres med ARCHIVE_ENCRYPTION_KEY på vej ind i databasen og dekrypteres på vej ud */
+const encryptedText = (table: string, column: string) =>
+  customType<{ data: string; driverData: string }>({
+    dataType: () => "text",
+    toDriver: (value) => encryptField(value, `${table}.${column}`),
+    fromDriver: (value) => decryptField(value, `${table}.${column}`),
+  })(column);
 
 const timestamps = {
   createdAt: integer("created_at", { mode: "timestamp" })
@@ -140,16 +149,16 @@ export const customers = sqliteTable(
     /** Fornavn eller dæknavn hvis Villads skriver om købet */
     nickname: text("nickname"),
     allowMention: integer("allow_mention", { mode: "boolean" }).notNull().default(true),
-    notes: text("notes").notNull().default(""),
+    notes: encryptedText("customers", "notes").notNull().default(""),
     /** "butik" = kom ind via et køb, "arkiv" = oprettet i venne-arkivet */
     origin: text("origin", { enum: CUSTOMER_ORIGINS }).notNull().default("butik"),
     relation: text("relation", { enum: RELATION_KINDS }),
     birthYear: integer("birth_year"),
-    howWeMet: text("how_we_met").notNull().default(""),
+    howWeMet: encryptedText("customers", "how_we_met").notNull().default(""),
     /** Hvad Villads ved om personen */
-    aboutThem: text("about_them").notNull().default(""),
+    aboutThem: encryptedText("customers", "about_them").notNull().default(""),
     /** Hvad vi har sammen: steder, jokes, fælles venner */
-    together: text("together").notNull().default(""),
+    together: encryptedText("customers", "together").notNull().default(""),
     /** Opdigtet testperson – kan fjernes samlet */
     isSample: integer("is_sample", { mode: "boolean" }).notNull().default(false),
     /** Hemmelig nøgle til personens indsigtsside (GDPR art. 15). Tom = intet aktivt link */
@@ -226,8 +235,8 @@ export const interactions = sqliteTable(
     /** "2004", "2004-06" eller "2004-06-21" – erindringer er ofte upræcise */
     date: text("date").notNull(),
     kind: text("kind", { enum: INTERACTION_KINDS }).notNull().default("samtale"),
-    title: text("title").notNull(),
-    body: text("body").notNull().default(""),
+    title: encryptedText("interactions", "title").notNull(),
+    body: encryptedText("interactions", "body").notNull().default(""),
     source: text("source", { enum: INTERACTION_SOURCES }).notNull().default("hukommelse"),
     ...timestamps,
   },
@@ -254,7 +263,7 @@ export const yearNotes = sqliteTable(
       .notNull()
       .references(() => customers.id, { onDelete: "cascade" }),
     year: integer("year").notNull(),
-    body: text("body").notNull().default(""),
+    body: encryptedText("year_notes", "body").notNull().default(""),
     ...timestamps,
   },
   (t) => [uniqueIndex("year_notes_customer_year_idx").on(t.customerId, t.year)],
@@ -518,6 +527,20 @@ export const settings = sqliteTable(
     value: text("value").notNull(),
   },
   (t) => [uniqueIndex("settings_key_idx").on(t.key)],
+);
+
+/** Mislykkede admin-login – til rate limiting, der virker på tværs af serverless-instanser */
+export const loginAttempts = sqliteTable(
+  "login_attempts",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    /** SHA-256 af IP-adressen, så selve adressen ikke gemmes */
+    ipHash: text("ip_hash").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [index("login_attempts_ip_idx").on(t.ipHash, t.createdAt), index("login_attempts_created_idx").on(t.createdAt)],
 );
 
 export const categoriesRelations = relations(categories, ({ many }) => ({

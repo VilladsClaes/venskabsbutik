@@ -57,6 +57,13 @@
       "when": 1792276744029,
       "tag": "0007_aarets_gang",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1792316269455,
+      "tag": "0008_login_forsoeg",
+      "breakpoints": true
     }
   ]
 }

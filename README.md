@@ -9,7 +9,7 @@ Villads Claes' webshop med venskaber til salg – flyttet fra Google Sites til s
 | Framework | **Next.js 16** (React, TypeScript) | Én kodebase til butik, admin og server |
 | Styling | **Tailwind CSS 4** + egne CSS-animationer | Sol, skyer, regnbuer og konfetti uden tunge biblioteker |
 | Database | **SQLite/libSQL** via **Drizzle ORM** | Lokalt en simpel fil; i drift en gratis Turso-database med præcis samme kode |
-| Login | Signeret cookie (JWT via `jose`) | Én adgangskode til admin |
+| Login | Signeret cookie (JWT via `jose`) + valgfri TOTP-2FA | Én adgangskode til admin, låst efter for mange forsøg |
 
 ## Kom i gang lokalt
 
@@ -33,6 +33,9 @@ Admin ligger på **http://localhost:3000/admin**.
 | `npm run db:generate` | Laver en ny migration efter ændringer i `src/db/schema.ts` |
 | `npm run db:migrate` | Kører migrationer mod databasen |
 | `npm run db:seed` | Indsætter produkter der mangler (overskriver aldrig dine ændringer) |
+| `npm run db:seed-arkiv` | Lægger opdigtede testpersoner i venne-arkivet (`-- --fjern` sletter dem igen) |
+| `npm run db:krypter-arkiv` | Krypterer arkivfelter, der stadig er klartekst (`-- --kør` for at gøre det) |
+| `npm run admin:totp` | Laver en ny 2FA-hemmelighed og viser QR-koden til din godkendelsesapp |
 | `npm run db:studio` | Åbner Drizzle Studio – se og ret databasen i browseren |
 
 ## Struktur
@@ -89,7 +92,8 @@ Anbefalet (gratis til en hobbybutik): **Vercel** til hjemmesiden + **Turso** til
    DATABASE_URL=libsql://... DATABASE_AUTH_TOKEN=... npm run db:setup
    ```
 4. Importér projektet på [vercel.com](https://vercel.com) og sæt miljøvariablerne fra `.env.example`
-   (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `ADMIN_PASSWORD`, `SESSION_SECRET`, `NEXT_PUBLIC_SITE_URL`).
+   (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `ADMIN_PASSWORD`, `SESSION_SECRET`, `ARCHIVE_ENCRYPTION_KEY`,
+   `ADMIN_TOTP_SECRET`, `NEXT_PUBLIC_SITE_URL`). Se [Sikkerhed](#sikkerhed-admin-og-venne-arkiv).
 5. Tilføj domænet `venskab.villadsclaes.dk` i Vercel og opret en CNAME-post for `venskab` hos Simply.com med den værdi, Vercel angiver.
 
 `www.villadsclaes.dk` er reserveret til en fælles landingsside for Villads' sites.
@@ -141,6 +145,42 @@ Er ingen kalender tilsluttet, får kunden en `.ics`-fil på mail i stedet.
 
 Er begge tilsluttet, læses ledig/optaget fra begge, og eventet lægges i begge – men deltagerne inviteres kun fra
 **hovedkalenderen**, så de ikke får to invitationer. Adgangsnøglerne gemmes krypteret (AES-GCM ud fra `SESSION_SECRET`).
+
+## Sikkerhed: admin og venne-arkiv
+
+Venne-arkivet rummer personlige oplysninger om rigtige mennesker, så admin og databasen er hærdet:
+
+- **Login** låses i 15 minutter efter 5 mislykkede forsøg fra samme IP-adresse (og efter 25 i alt fra alle).
+  Forsøgene gemmes i tabellen `login_attempts` med en hash af IP-adressen, så det virker på tværs af Vercels
+  serverless-instanser. En session varer 12 timer.
+- **2FA** slås til ved at sætte `ADMIN_TOTP_SECRET`. Kør `npm run admin:totp`, scan QR-koden med din
+  godkendelsesapp (1Password, Google Authenticator …), og læg hemmeligheden i `.env.local` og i Vercel. Login beder
+  derefter om den 6-cifrede kode, og hver kode kan kun bruges én gang. Sessioner fra før 2FA blev slået til, holder op med at virke.
+  Fjernes variablen igen, er 2FA slået fra.
+- **Kryptering:** `customers.about_them`, `together`, `notes`, `how_we_met`, `interactions.title`, `body` og
+  `year_notes.body` krypteres med AES-256-GCM, før de gemmes, og dekrypteres, når de læses (kolonnetypen
+  `encryptedText` i `src/db/schema.ts`, helperne ligger i `src/lib/field-crypto.ts`). Turso ser kun `enc:v1:…`.
+  Lav en nøgle med:
+  ```bash
+  node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+  ```
+  Uden nøgle nægter produktion at gemme arkivfelter. Lokalt gemmes de i klartekst med en advarsel.
+
+**Første gang i produktion** (eller når nøglen er sat lokalt): klartekst fra før krypteringen kan stadig læses,
+men skal krypteres én gang:
+
+```bash
+DATABASE_URL=libsql://... DATABASE_AUTH_TOKEN=... ARCHIVE_ENCRYPTION_KEY=... npm run db:krypter-arkiv
+DATABASE_URL=libsql://... DATABASE_AUTH_TOKEN=... ARCHIVE_ENCRYPTION_KEY=... npm run db:krypter-arkiv -- --kør --ja-produktion
+```
+
+Den første kommando viser kun, hvor mange felter der mangler. Scriptet kan køres igen uden skade.
+
+> ⚠️ **Mister du `ARCHIVE_ENCRYPTION_KEY`, er arkivteksterne væk.** Gem nøglen i din password manager. Den kan ikke
+> skiftes uden at dekryptere og kryptere alt igen.
+>
+> Billeder uploadet fra admin ligger **offentligt** i Vercel Blob. Upload aldrig dagbogssider, skærmbilleder af
+> SMS'er eller andet råt kildemateriale. Skriv det ind som tekst i et øjeblik i stedet, så det bliver krypteret.
 
 ## Næste skridt
 
