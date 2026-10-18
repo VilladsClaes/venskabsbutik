@@ -31,10 +31,31 @@
       "breakpoints": true
     },
     {
+      "idx": 4,
+      "version": "6",
+      "when": 1792276182807,
+      "tag": "0004_venne_arkiv",
+      "breakpoints": true
+    },
+    {
       "idx": 5,
       "version": "6",
       "when": 1792276202251,
       "tag": "0005_kalender",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1792276479374,
+      "tag": "0006_indsigt",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1792276744029,
+      "tag": "0007_aarets_gang",
       "breakpoints": true
     }
   ]

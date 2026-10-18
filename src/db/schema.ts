@@ -111,6 +111,25 @@ export const productQuestions = sqliteTable("product_questions", {
   sortOrder: integer("sort_order").notNull().default(0),
 });
 
+export const CUSTOMER_ORIGINS = ["butik", "arkiv"] as const;
+export type CustomerOrigin = (typeof CUSTOMER_ORIGINS)[number];
+
+export const RELATION_KINDS = [
+  "familie",
+  "barndom",
+  "skole",
+  "gymnasium",
+  "studie",
+  "kaerlighed",
+  "arbejde",
+  "nabo",
+  "fritid",
+  "rejse",
+  "tilfaeldig",
+  "andet",
+] as const;
+export type RelationKind = (typeof RELATION_KINDS)[number];
+
 export const customers = sqliteTable(
   "customers",
   {
@@ -122,9 +141,123 @@ export const customers = sqliteTable(
     nickname: text("nickname"),
     allowMention: integer("allow_mention", { mode: "boolean" }).notNull().default(true),
     notes: text("notes").notNull().default(""),
+    /** "butik" = kom ind via et køb, "arkiv" = oprettet i venne-arkivet */
+    origin: text("origin", { enum: CUSTOMER_ORIGINS }).notNull().default("butik"),
+    relation: text("relation", { enum: RELATION_KINDS }),
+    birthYear: integer("birth_year"),
+    howWeMet: text("how_we_met").notNull().default(""),
+    /** Hvad Villads ved om personen */
+    aboutThem: text("about_them").notNull().default(""),
+    /** Hvad vi har sammen: steder, jokes, fælles venner */
+    together: text("together").notNull().default(""),
+    /** Opdigtet testperson – kan fjernes samlet */
+    isSample: integer("is_sample", { mode: "boolean" }).notNull().default(false),
+    /** Hemmelig nøgle til personens indsigtsside (GDPR art. 15). Tom = intet aktivt link */
+    insightToken: text("insight_token"),
+    insightCreatedAt: integer("insight_created_at", { mode: "timestamp" }),
+    insightViewedAt: integer("insight_viewed_at", { mode: "timestamp" }),
     ...timestamps,
   },
-  (t) => [index("customers_email_idx").on(t.email), index("customers_phone_idx").on(t.phone)],
+  (t) => [
+    index("customers_email_idx").on(t.email),
+    index("customers_phone_idx").on(t.phone),
+    index("customers_origin_idx").on(t.origin),
+    uniqueIndex("customers_insight_token_idx").on(t.insightToken),
+  ],
+);
+
+/** Perioder i Villads' liv hvor personen var "aktiv" – angivet i Villads' alder */
+export const friendPeriods = sqliteTable(
+  "friend_periods",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    customerId: integer("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    fromAge: real("from_age").notNull(),
+    /** Tom = stadig aktiv */
+    toAge: real("to_age"),
+    /** 1 (sporadisk) til 5 (hver dag) */
+    intensity: integer("intensity").notNull().default(3),
+    label: text("label").notNull().default(""),
+    ...timestamps,
+  },
+  (t) => [index("friend_periods_customer_idx").on(t.customerId)],
+);
+
+export const INTERACTION_KINDS = [
+  "samtale",
+  "opkald",
+  "beskeder",
+  "brev",
+  "maaltid",
+  "fest",
+  "rejse",
+  "oplevelse",
+  "hjaelp",
+  "svaer_tid",
+  "kaerlighed",
+  "konflikt",
+  "gensyn",
+  "milepael",
+  "andet",
+] as const;
+export type InteractionKind = (typeof INTERACTION_KINDS)[number];
+
+export const INTERACTION_SOURCES = [
+  "hukommelse",
+  "dagbog",
+  "sms",
+  "opkald",
+  "email",
+  "kalender",
+  "sociale_medier",
+  "foto",
+] as const;
+export type InteractionSource = (typeof INTERACTION_SOURCES)[number];
+
+export const interactions = sqliteTable(
+  "interactions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    customerId: integer("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    /** "2004", "2004-06" eller "2004-06-21" – erindringer er ofte upræcise */
+    date: text("date").notNull(),
+    kind: text("kind", { enum: INTERACTION_KINDS }).notNull().default("samtale"),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    source: text("source", { enum: INTERACTION_SOURCES }).notNull().default("hukommelse"),
+    ...timestamps,
+  },
+  (t) => [index("interactions_customer_idx").on(t.customerId, t.date)],
+);
+
+/** "Årets gang" – Villads' fælles brev for et år, som alle årets venner får med i deres venskab-wrapped */
+export const yearLetters = sqliteTable("year_letters", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  year: integer("year").notNull().unique(),
+  title: text("title").notNull().default(""),
+  body: text("body").notNull().default(""),
+  /** Først når året er "udgivet", kan vennerne se det */
+  published: integer("published", { mode: "boolean" }).notNull().default(false),
+  ...timestamps,
+});
+
+/** En personlig hilsen til én person i årets brev */
+export const yearNotes = sqliteTable(
+  "year_notes",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    customerId: integer("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    year: integer("year").notNull(),
+    body: text("body").notNull().default(""),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("year_notes_customer_year_idx").on(t.customerId, t.year)],
 );
 
 export const ORDER_STATUSES = [
@@ -414,6 +547,21 @@ export const productQuestionsRelations = relations(productQuestions, ({ one }) =
 
 export const customersRelations = relations(customers, ({ many }) => ({
   orders: many(orders),
+  periods: many(friendPeriods),
+  interactions: many(interactions),
+  yearNotes: many(yearNotes),
+}));
+
+export const yearNotesRelations = relations(yearNotes, ({ one }) => ({
+  customer: one(customers, { fields: [yearNotes.customerId], references: [customers.id] }),
+}));
+
+export const friendPeriodsRelations = relations(friendPeriods, ({ one }) => ({
+  customer: one(customers, { fields: [friendPeriods.customerId], references: [customers.id] }),
+}));
+
+export const interactionsRelations = relations(interactions, ({ one }) => ({
+  customer: one(customers, { fields: [interactions.customerId], references: [customers.id] }),
 }));
 
 export const ordersRelations = relations(orders, ({ one, many }) => ({

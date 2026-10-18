@@ -1,14 +1,26 @@
 "use server";
 
+import { randomBytes } from "node:crypto";
 import { and, eq, notInArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db, schema as s } from "@/db";
-import { MEDIA_KINDS, ORDER_STATUSES, PAYMENT_METHODS, PRICE_KINDS, QUESTION_KINDS, TESTIMONIAL_STATUSES } from "@/db/schema";
+import {
+  INTERACTION_KINDS,
+  INTERACTION_SOURCES,
+  MEDIA_KINDS,
+  ORDER_STATUSES,
+  PAYMENT_METHODS,
+  PRICE_KINDS,
+  QUESTION_KINDS,
+  RELATION_KINDS,
+  TESTIMONIAL_STATUSES,
+} from "@/db/schema";
 import { destroySession, requireAdmin } from "@/lib/auth";
 import { fromLocalInput } from "@/lib/dates";
+import { isFuzzyDate, LIFESPAN } from "@/lib/life-archive";
 import { sendStatusEmail } from "@/lib/email";
 import { syncSignupsWithOrderStatus } from "@/lib/events";
 import { parseKr } from "@/lib/money";
@@ -180,7 +192,150 @@ export async function saveCustomer(customerId: number, form: FormData) {
       nickname: String(form.get("nickname") ?? "").trim() || null,
       allowMention: form.get("allowMention") === "on",
       notes: String(form.get("notes") ?? "").slice(0, 5000),
+      relation: pick(RELATION_KINDS, form.get("relation")) ?? null,
+      birthYear: toInt(form.get("birthYear"), 1900, 2100),
+      howWeMet: String(form.get("howWeMet") ?? "").slice(0, 2000),
+      aboutThem: String(form.get("aboutThem") ?? "").slice(0, 10000),
+      together: String(form.get("together") ?? "").slice(0, 10000),
     })
+    .where(eq(s.customers.id, customerId));
+  refresh();
+}
+
+/* ---------- Venne-arkivet ---------- */
+
+function pick<T extends string>(allowed: readonly T[], value: FormDataEntryValue | null): T | undefined {
+  return allowed.includes(value as T) ? (value as T) : undefined;
+}
+
+function toInt(value: FormDataEntryValue | null, min: number, max: number) {
+  const n = Number(String(value ?? "").trim());
+  return String(value ?? "").trim() && Number.isInteger(n) && n >= min && n <= max ? n : null;
+}
+
+function toAge(value: FormDataEntryValue | null) {
+  const n = Number(String(value ?? "").trim().replace(",", "."));
+  return String(value ?? "").trim() && Number.isFinite(n) && n >= 0 && n <= LIFESPAN ? n : null;
+}
+
+export async function createArchivePerson(form: FormData) {
+  await requireAdmin();
+  const name = String(form.get("name") ?? "").trim().slice(0, 120);
+  if (!name) return;
+  const [row] = await db
+    .insert(s.customers)
+    .values({ name, origin: "arkiv", relation: pick(RELATION_KINDS, form.get("relation")) ?? null, allowMention: false })
+    .returning({ id: s.customers.id });
+  refresh();
+  redirect(`/admin/kunder/${row.id}`);
+}
+
+/** Kun personer uden ordrer kan slettes – butikkens bogføring skal blive stående */
+export async function deleteArchivePerson(customerId: number) {
+  await requireAdmin();
+  const order = await db.query.orders.findFirst({ where: eq(s.orders.customerId, customerId) });
+  if (order) throw new Error("Personen har ordrer og kan ikke slettes");
+  await db.delete(s.customers).where(eq(s.customers.id, customerId));
+  refresh();
+  redirect("/admin/kunder?vis=arkiv");
+}
+
+export async function addPeriod(customerId: number, form: FormData) {
+  await requireAdmin();
+  const fromAge = toAge(form.get("fromAge"));
+  const toAgeValue = toAge(form.get("toAge"));
+  if (fromAge === null || (toAgeValue !== null && toAgeValue < fromAge)) return;
+  await db.insert(s.friendPeriods).values({
+    customerId,
+    fromAge,
+    toAge: toAgeValue,
+    intensity: toInt(form.get("intensity"), 1, 5) ?? 3,
+    label: String(form.get("label") ?? "").slice(0, 200),
+  });
+  refresh();
+}
+
+export async function deletePeriod(id: number) {
+  await requireAdmin();
+  await db.delete(s.friendPeriods).where(eq(s.friendPeriods.id, id));
+  refresh();
+}
+
+export async function addInteraction(customerId: number, form: FormData) {
+  await requireAdmin();
+  const date = String(form.get("date") ?? "").trim();
+  const title = String(form.get("title") ?? "").trim().slice(0, 200);
+  if (!isFuzzyDate(date) || !title) return;
+  await db.insert(s.interactions).values({
+    customerId,
+    date,
+    title,
+    kind: pick(INTERACTION_KINDS, form.get("kind")) ?? "samtale",
+    source: pick(INTERACTION_SOURCES, form.get("source")) ?? "hukommelse",
+    body: String(form.get("body") ?? "").slice(0, 10000),
+  });
+  refresh();
+}
+
+export async function deleteInteraction(id: number) {
+  await requireAdmin();
+  await db.delete(s.interactions).where(eq(s.interactions.id, id));
+  refresh();
+}
+
+/** Nyt indsigtslink – et eventuelt gammelt link holder op med at virke */
+export async function createInsightLink(customerId: number) {
+  await requireAdmin();
+  await db
+    .update(s.customers)
+    .set({ insightToken: randomBytes(24).toString("base64url"), insightCreatedAt: new Date(), insightViewedAt: null })
+    .where(eq(s.customers.id, customerId));
+  refresh();
+}
+
+/* ---------- Årets gang ---------- */
+
+export async function saveYearLetter(year: number, form: FormData) {
+  await requireAdmin();
+  const values = {
+    title: String(form.get("title") ?? "").slice(0, 200),
+    body: String(form.get("body") ?? "").slice(0, 20000),
+    published: form.get("published") === "on",
+  };
+  await db
+    .insert(s.yearLetters)
+    .values({ year, ...values })
+    .onConflictDoUpdate({ target: s.yearLetters.year, set: values });
+  refresh();
+}
+
+export async function saveYearNote(customerId: number, year: number, form: FormData) {
+  await requireAdmin();
+  const body = String(form.get("body") ?? "").slice(0, 5000);
+  await db
+    .insert(s.yearNotes)
+    .values({ customerId, year, body })
+    .onConflictDoUpdate({ target: [s.yearNotes.customerId, s.yearNotes.year], set: { body } });
+  refresh();
+}
+
+/** Indsigtslinks til alle årets venner, der ikke har et endnu */
+export async function createMissingInsightLinks(customerIds: number[]) {
+  await requireAdmin();
+  for (const id of customerIds) {
+    await db
+      .update(s.customers)
+      .set({ insightToken: randomBytes(24).toString("base64url"), insightCreatedAt: new Date() })
+      .where(and(eq(s.customers.id, id), sql`${s.customers.insightToken} is null`));
+  }
+  refresh();
+}
+
+export async function revokeInsightLink(customerId: number) {
+  await requireAdmin();
+  await db
+    .update(s.customers)
+    .set({ insightToken: null, insightCreatedAt: null, insightViewedAt: null })
     .where(eq(s.customers.id, customerId));
   refresh();
 }

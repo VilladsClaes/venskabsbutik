@@ -84,7 +84,13 @@ export async function getShopStats() {
       .select({ n: sql<number>`count(*)` })
       .from(s.orders)
       .where(inArray(s.orders.status, [...SOLD_STATUSES])),
-    db.select({ n: sql<number>`count(*)` }).from(s.customers),
+    // Venne-arkivets personer tæller først med, når de selv har bestilt noget
+    db
+      .select({ n: sql<number>`count(*)` })
+      .from(s.customers)
+      .where(
+        sql`${s.customers.origin} = 'butik' or exists (select 1 from ${s.orders} where ${s.orders.customerId} = ${s.customers.id})`,
+      ),
   ]);
   return { orders: Number(orders.n), customers: Number(customers.n) };
 }

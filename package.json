@@ -11,6 +11,7 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
     "db:setup": "npm run db:migrate && npm run db:seed",
+    "db:seed-arkiv": "tsx src/db/seed-arkiv.ts",
     "db:studio": "drizzle-kit studio",
     "typecheck": "tsc --noEmit"
   },
