@@ -68,6 +68,8 @@ export const products = sqliteTable(
     recurringLabel: text("recurring_label"),
     active: integer("active", { mode: "boolean" }).notNull().default(true),
     featured: integer("featured", { mode: "boolean" }).notNull().default(false),
+    /** Aktivitet (bow combat, saunatur …): man lægger den ikke i kurven, men tilmelder sig en af dens datoer */
+    isActivity: integer("is_activity", { mode: "boolean" }).notNull().default(false),
     sortOrder: integer("sort_order").notNull().default(0),
     legacyUrl: text("legacy_url"),
     ...timestamps,
@@ -460,7 +462,18 @@ export const calendarConnections = sqliteTable("calendar_connections", {
   ...timestamps,
 });
 
-/** Events i kalenderen, som man kan købe sig adgang til (bow combat, gyserfilm, cykeltur …) */
+/**
+ * samler: tilmeldingen er åben, og Villads' kalender har en "måske"-post
+ * gennemfoeres: minimum er nået – deltagerne er inviteret og bedt om at betale
+ * aflyst: for få tilmeldte ved fristen (eller aflyst af Villads)
+ */
+/** Hvad der sidst er sendt som invitation: så vi kun sender opdateringer, når noget har ændret sig */
+export type InviteState = { status: "tentative" | "confirmed" | "cancelled"; attendees: string[]; hash: string };
+
+export const EVENT_STATUSES = ["samler", "gennemfoeres", "aflyst"] as const;
+export type EventStatus = (typeof EVENT_STATUSES)[number];
+
+/** Events i kalenderen, som man kan tilmelde sig (bow combat, gyserfilm, cykeltur …) */
 export const events = sqliteTable(
   "events",
   {
@@ -478,6 +491,22 @@ export const events = sqliteTable(
     price: integer("price").notNull().default(0),
     /** Antal pladser. null = ubegrænset */
     capacity: integer("capacity"),
+    /** Så mange skal med, før eventet bliver til noget */
+    minParticipants: integer("min_participants").notNull().default(1),
+    /** Er minimum ikke nået her, aflyses eventet automatisk. null = ved start */
+    signupDeadline: integer("signup_deadline", { mode: "timestamp" }),
+    /** Mødested, hvad man skal have med, transport … – kommer med i kalenderposten */
+    practicalInfo: text("practical_info").notNull().default(""),
+    status: text("status", { enum: EVENT_STATUSES }).notNull().default("samler"),
+    confirmedAt: integer("confirmed_at", { mode: "timestamp" }),
+    cancelledAt: integer("cancelled_at", { mode: "timestamp" }),
+    cancelReason: text("cancel_reason"),
+    /**
+     * Invitationer over e-mail (iCalendar) til Villads' Outlook og deltagerne – bruges fordi en privat
+     * Outlook-konto ikke kan skrives til via API. SEQUENCE skal stige ved hver opdatering.
+     */
+    inviteSequence: integer("invite_sequence").notNull().default(0),
+    inviteState: text("invite_state", { mode: "json" }).$type<InviteState>(),
     /** Fx "foedselsdag" – eventet hører til et eksisterende produkt */
     productId: integer("product_id").references(() => products.id, { onDelete: "set null" }),
     /** Rute til rutekortet (GeoJSON), fx en cykeltur gennem Danmark */
@@ -494,10 +523,17 @@ export const events = sqliteTable(
   (t) => [index("events_starts_idx").on(t.startsAt)],
 );
 
-export const SIGNUP_STATUSES = ["afventer", "bekraeftet", "annulleret"] as const;
+/**
+ * tilmeldt: med på listen, mens eventet samler tilmeldte (ingen betaling endnu)
+ * bekraeftet: eventet gennemføres – på kalenderposten og har en ordre at betale
+ */
+export const SIGNUP_STATUSES = ["tilmeldt", "bekraeftet", "annulleret"] as const;
 export type SignupStatus = (typeof SIGNUP_STATUSES)[number];
 
-/** Tilmeldinger til et event. Bekræftes når ordren er betalt – så tilføjes e-mailen til kalenderposten. */
+/**
+ * Én række pr. person. Den der tilmelder (isBooker) og vennerne deler groupToken, som
+ * også er nøglen i afmeldingslinket. Ordren laves først, når eventet gennemføres.
+ */
 export const eventSignups = sqliteTable(
   "event_signups",
   {
@@ -505,19 +541,44 @@ export const eventSignups = sqliteTable(
     eventId: integer("event_id")
       .notNull()
       .references(() => events.id, { onDelete: "cascade" }),
-    orderId: integer("order_id")
-      .notNull()
-      .references(() => orders.id, { onDelete: "cascade" }),
+    orderId: integer("order_id").references(() => orders.id, { onDelete: "set null" }),
+    groupToken: text("group_token").notNull(),
+    isBooker: integer("is_booker", { mode: "boolean" }).notNull().default(true),
     name: text("name").notNull(),
     email: text("email").notNull(),
+    phone: text("phone"),
+    note: text("note").notNull().default(""),
+    /** Vis ikke fornavnet på eventsiden */
+    hideName: integer("hide_name", { mode: "boolean" }).notNull().default(false),
     seats: integer("seats").notNull().default(1),
-    status: text("status", { enum: SIGNUP_STATUSES }).notNull().default("afventer"),
+    status: text("status", { enum: SIGNUP_STATUSES }).notNull().default("tilmeldt"),
+    paymentRemindedAt: integer("payment_reminded_at", { mode: "timestamp" }),
     /** Hvornår deltageren sidst blev skrevet på kalenderposten */
     calendarSyncedAt: integer("calendar_synced_at", { mode: "timestamp" }),
     syncError: text("sync_error"),
     ...timestamps,
   },
-  (t) => [index("event_signups_event_idx").on(t.eventId), index("event_signups_order_idx").on(t.orderId)],
+  (t) => [
+    index("event_signups_event_idx").on(t.eventId),
+    index("event_signups_order_idx").on(t.orderId),
+    index("event_signups_group_idx").on(t.groupToken),
+  ],
+);
+
+/** "Sig at du er interesseret" på en aktivitet – de får besked, når der kommer en ny dato */
+export const activityInterests = sqliteTable(
+  "activity_interests",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    productId: integer("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    email: text("email").notNull(),
+    note: text("note").notNull().default(""),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("activity_interests_product_email").on(t.productId, t.email)],
 );
 
 export const settings = sqliteTable(
@@ -554,6 +615,8 @@ export const productsRelations = relations(products, ({ one, many }) => ({
   questions: many(productQuestions),
   testimonials: many(testimonials),
   deliveries: many(deliveries),
+  events: many(events),
+  interests: many(activityInterests),
 }));
 
 export const productVariantsRelations = relations(productVariants, ({ one }) => ({
@@ -594,6 +657,10 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
   tasks: many(orderTasks),
   drafts: many(orderDrafts),
   signups: many(eventSignups),
+}));
+
+export const activityInterestsRelations = relations(activityInterests, ({ one }) => ({
+  product: one(products, { fields: [activityInterests.productId], references: [products.id] }),
 }));
 
 export const eventsRelations = relations(events, ({ one, many }) => ({

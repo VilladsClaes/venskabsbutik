@@ -2,7 +2,6 @@ import { and, eq } from "drizzle-orm";
 import { db, schema as s } from "@/db";
 import type { PaymentMethod } from "@/db/schema";
 import { sendStatusEmail } from "./email";
-import { confirmEventSignups } from "./events";
 
 /**
  * Registrerer en indbetaling og sætter ordren til "Betalt", når hele beløbet er dækket.
@@ -37,8 +36,6 @@ export async function registerPayment(input: {
       with: { customer: true, items: true },
     });
     if (full) await sendStatusEmail(full);
-    // Event-billetter: nu kommer kunden på kalenderposten
-    await confirmEventSignups(input.orderId);
     return true;
   }
   return false;

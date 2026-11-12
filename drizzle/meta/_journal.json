@@ -64,6 +64,20 @@
       "when": 1792316269455,
       "tag": "0008_login_forsoeg",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1794452642320,
+      "tag": "0009_events_tilmelding",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1794453580721,
+      "tag": "0010_event_invitationer",
+      "breakpoints": true
     }
   ]
 }

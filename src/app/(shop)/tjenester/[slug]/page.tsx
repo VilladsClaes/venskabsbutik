@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ActivityDates } from "@/components/activity-dates";
 import { AddToCart } from "@/components/add-to-cart";
 import { Gallery } from "@/components/gallery";
 import { PriceCodeBadge, ProductCard, Stars, TestimonialCard } from "@/components/product-bits";
@@ -11,6 +12,7 @@ import { TestimonialForm } from "@/components/testimonial-form";
 import { Countdown } from "@/components/live-numbers";
 import { YouTube } from "@/components/youtube";
 import { upcomingMilestones } from "@/lib/birthday";
+import { checkDeadlinesSoon } from "@/lib/events";
 import { DAILY_BONUS_SLUG, pickDaily } from "@/lib/daily";
 import { experienceFor } from "@/lib/experience-list";
 import { getProductBySlug, getShopProducts } from "@/lib/queries";
@@ -44,12 +46,13 @@ export default async function ProductPage({ params }: PageProps<"/tjenester/[slu
   const { slug } = await params;
   const product = await getProductBySlug(slug);
   if (!product) notFound();
+  if (product.isActivity) checkDeadlinesSoon();
 
   const images = product.media.filter((m) => m.kind === "image");
   const videos = product.media.filter((m) => m.kind === "youtube");
   const audios = product.media.filter((m) => m.kind === "audio");
   const allProducts = await getShopProducts();
-  const isDaily = pickDaily(allProducts.filter((p) => p.slug !== DAILY_BONUS_SLUG))?.id === product.id;
+  const isDaily = pickDaily(allProducts.filter((p) => p.slug !== DAILY_BONUS_SLUG && !p.isActivity))?.id === product.id;
   const bonusName = allProducts.find((p) => p.slug === DAILY_BONUS_SLUG)?.name;
   const experience = experienceFor(product.slug);
   const nextBirthday = product.slug === "foedselsdag" ? upcomingMilestones(new Date(), 1)[0] : undefined;
@@ -158,6 +161,9 @@ export default async function ProductPage({ params }: PageProps<"/tjenester/[slu
               )}
 
               <div className="mt-6">
+                {product.isActivity ? (
+                  <ActivityDates productId={product.id} price={product.price} />
+                ) : (
                 <AddToCart
                   product={{
                     id: product.id,
@@ -175,6 +181,7 @@ export default async function ProductPage({ params }: PageProps<"/tjenester/[slu
                     variants: product.variants.map((v) => ({ id: v.id, name: v.name, price: v.price })),
                   }}
                 />
+                )}
               </div>
               {product.delivery && (
                 <p className="mt-4 flex gap-2 font-semibold">

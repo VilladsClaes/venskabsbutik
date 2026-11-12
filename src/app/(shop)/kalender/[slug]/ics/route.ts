@@ -1,4 +1,5 @@
 import { buildIcs, eventUrl } from "@/lib/calendar/ics";
+import { eventPlainText } from "@/lib/event-text";
 import { getEventBySlug } from "@/lib/events";
 
 // "Gem datoen" som .ics-fil – virker i Apple Kalender, Outlook, Google og alle andre
@@ -9,7 +10,7 @@ export async function GET(_req: Request, ctx: RouteContext<"/kalender/[slug]/ics
   const ics = buildIcs({
     uid: `event-${e.id}`,
     title: `${e.emoji} ${e.title}`,
-    description: e.summary,
+    description: eventPlainText(e, e.seatsTaken),
     location: e.location,
     start: e.startsAt,
     end: e.endsAt,

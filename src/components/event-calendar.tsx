@@ -204,7 +204,7 @@ function DayDetail({ day, hasBusyData }: { day: CalendarDay; hasBusyData: boolea
               <span className="block font-display text-lg font-bold leading-tight">{e.title}</span>
               <span className="block text-sm font-semibold">kl. {e.time}</span>
               <span className="mt-1 block text-sm">
-                {e.price ? `${formatKr(e.price)} pr. plads` : "Gratis"}
+                {e.price ? `${formatKr(e.price)} pr. person` : "Gratis"}
                 {e.seatsLeft != null && ` · ${e.seatsLeft ? `${e.seatsLeft} pladser tilbage` : "Fuldt booket"}`}
               </span>
             </span>

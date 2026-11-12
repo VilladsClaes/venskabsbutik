@@ -1,8 +1,11 @@
 import { eq } from "drizzle-orm";
 import { db, schema as s } from "@/db";
 import { CALENDAR_PROVIDERS, type CalendarProvider } from "@/db/schema";
+import { eventPageUrl, eventPlainText, productPageUrl } from "../event-text";
 import { SITE_URL } from "../site";
+import { emailEnabled } from "../email";
 import { decrypt, encrypt } from "./crypto";
+import { getInviteEmail, syncEventInvites } from "./invites";
 import { fetchIcsBusy } from "./ics-busy";
 import { PROVIDERS, type AttendeeChanges, type Interval } from "./providers";
 
@@ -163,28 +166,53 @@ export function mergeIntervals(list: Interval[]): Interval[] {
 export type SyncResult = { synced: CalendarProvider[]; errors: string[]; attendeesSynced: boolean };
 
 /**
- * Lægger eventet i de tilsluttede kalendere og skriver bekræftede deltagere på posten,
- * så de får en invitation og eventet dukker op i deres egen kalender.
+ * Holder eventets post i Villads' kalendere opdateret:
+ * - samler tilmeldte: en "måske"-post (tentativ) uden deltagere, så tiden er holdt fri
+ * - gennemføres: en almindelig post med alle bekræftede deltagere som mødedeltagere
+ * - aflyst eller skjult: posten slettes (deltagerne får en aflysning)
  */
 export async function syncEventToCalendars(eventId: number): Promise<SyncResult> {
-  const event = await db.query.events.findFirst({ where: eq(s.events.id, eventId), with: { signups: true } });
+  const event = await db.query.events.findFirst({
+    where: eq(s.events.id, eventId),
+    with: { signups: true, product: { columns: { slug: true, name: true } } },
+  });
   const result: SyncResult = { synced: [], errors: [], attendeesSynced: false };
   if (!event) return result;
 
-  const [conns, setting] = await Promise.all([
+  const [conns, setting, inviteEmail] = await Promise.all([
     getConnections(),
     db.query.settings.findFirst({ where: eq(s.settings.key, "calendarPrimary") }),
+    getInviteEmail(),
   ]);
-  if (conns.length === 0) return result;
   const primary = primaryProvider(conns, setting?.value);
+  // Med en Outlook-adresse til invitationer sendes deltagerinvitationerne som e-mail herfra,
+  // og de tilsluttede kalendere får kun selve posten (så ingen får to invitationer)
+  const useInvites = !!inviteEmail && emailEnabled();
 
+  const tentative = event.status === "samler";
+  const active = event.signups.filter((x) => x.status !== "annulleret");
+  const seatsTaken = active.reduce((n, x) => n + x.seats, 0);
   const confirmed = event.signups.filter((x) => x.status === "bekraeftet");
   const confirmedEmails = new Set(confirmed.map((x) => x.email.toLowerCase()));
-  const attendees: AttendeeChanges = {
-    add: confirmed.map((x) => ({ email: x.email, name: x.name })),
-    remove: event.signups
-      .filter((x) => x.status === "annulleret" && !confirmedEmails.has(x.email.toLowerCase()))
-      .map((x) => x.email),
+  const attendees: AttendeeChanges | undefined = tentative || useInvites
+    ? undefined
+    : {
+        add: confirmed.map((x) => ({ email: x.email, name: x.name })),
+        remove: event.signups
+          .filter((x) => x.status !== "bekraeftet" && !confirmedEmails.has(x.email.toLowerCase()))
+          .map((x) => x.email),
+      };
+  const remove = !event.published || event.status === "aflyst";
+  const data = {
+    title: tentative
+      ? `❔ Måske: ${event.emoji} ${event.title} (${seatsTaken}/${event.minParticipants})`
+      : `${event.emoji} ${event.title}`,
+    description: eventPlainText(event, seatsTaken),
+    location: event.location,
+    start: event.startsAt,
+    end: event.endsAt,
+    url: event.product ? productPageUrl(event.product.slug) : eventPageUrl(event.slug),
+    tentative,
   };
 
   const ids = { ...event.externalIds };
@@ -192,27 +220,14 @@ export async function syncEventToCalendars(eventId: number): Promise<SyncResult>
     const api = PROVIDERS[c.provider];
     try {
       const token = await accessToken(c);
-      if (!event.published) {
+      if (remove) {
         if (ids[c.provider]) await api.deleteEvent(token, c.calendarId, ids[c.provider]!);
         delete ids[c.provider];
         continue;
       }
-      ids[c.provider] = await api.upsertEvent(
-        token,
-        c.calendarId,
-        ids[c.provider],
-        {
-          title: `${event.emoji} ${event.title}`,
-          description: [event.summary, event.description].filter(Boolean).join("\n\n"),
-          location: event.location,
-          start: event.startsAt,
-          end: event.endsAt,
-          url: `${SITE_URL}/kalender/${event.slug}`,
-        },
-        c.provider === primary ? attendees : undefined,
-      );
+      ids[c.provider] = await api.upsertEvent(token, c.calendarId, ids[c.provider], data, c.provider === primary ? attendees : undefined);
       result.synced.push(c.provider);
-      if (c.provider === primary) result.attendeesSynced = true;
+      if (c.provider === primary && attendees) result.attendeesSynced = true;
       if (c.lastError) await setConnectionError(c, null);
     } catch (e) {
       console.error(`Kunne ikke lægge event ${event.id} i ${c.provider}`, e);
@@ -220,10 +235,20 @@ export async function syncEventToCalendars(eventId: number): Promise<SyncResult>
     }
   }
 
-  await db
-    .update(s.events)
-    .set({ externalIds: ids, syncError: result.errors.join("\n") || null })
-    .where(eq(s.events.id, event.id));
+  if (conns.length > 0) {
+    await db
+      .update(s.events)
+      .set({ externalIds: ids, syncError: result.errors.join("\n") || null })
+      .where(eq(s.events.id, event.id));
+  }
+  if (useInvites) {
+    try {
+      result.attendeesSynced = await syncEventInvites(event);
+    } catch (e) {
+      console.error(`Invitationer til event ${event.id} fejlede`, e);
+      result.errors.push(`Invitationer: ${String(e).slice(0, 200)}`);
+    }
+  }
   if (result.attendeesSynced) {
     for (const x of confirmed) {
       await db

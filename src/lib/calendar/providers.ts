@@ -13,7 +13,12 @@ export type CalendarEventData = {
   start: Date;
   end: Date;
   url: string;
+  /** "Måske"-post: holder tiden fri i Villads' kalender, mens eventet samler tilmeldte */
+  tentative?: boolean;
 };
+
+/** Beskrivelsen med linket til siden nederst (medmindre det allerede står der) */
+const withUrl = (ev: CalendarEventData) => (ev.description.includes(ev.url) ? ev.description : `${ev.description}\n\n${ev.url}`.trim());
 
 export type Attendee = { email: string; name: string };
 
@@ -167,8 +172,9 @@ const google: ProviderApi = {
     const base = `${GOOGLE_API}/calendars/${encodeURIComponent(calendarId)}/events`;
     const body: Record<string, unknown> = {
       summary: ev.title,
-      description: `${ev.description}\n\n${ev.url}`.trim(),
+      description: withUrl(ev),
       location: ev.location,
+      status: ev.tentative ? "tentative" : "confirmed",
       start: { dateTime: ev.start.toISOString(), timeZone: "Europe/Copenhagen" },
       end: { dateTime: ev.end.toISOString(), timeZone: "Europe/Copenhagen" },
       source: { title: "Venskabsbutikken", url: ev.url },
@@ -278,10 +284,11 @@ const outlook: ProviderApi = {
   upsertEvent: async (token, calendarId, externalId, ev, attendees) => {
     const body: Record<string, unknown> = {
       subject: ev.title,
-      body: { contentType: "text", content: `${ev.description}\n\n${ev.url}`.trim() },
+      body: { contentType: "text", content: withUrl(ev) },
       start: graphTime(ev.start),
       end: graphTime(ev.end),
       location: { displayName: ev.location },
+      showAs: ev.tentative ? "tentative" : "busy",
       hideAttendees: true,
       allowNewTimeProposals: false,
     };

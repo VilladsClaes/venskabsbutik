@@ -1,3 +1,4 @@
+import { EventProgress } from "@/components/event-progress";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { EventCalendar } from "@/components/event-calendar";
@@ -56,6 +57,9 @@ export default async function CalendarPage({ searchParams }: PageProps<"/kalende
                     <span className="mt-2 font-display text-2xl font-bold leading-tight">{e.title}</span>
                     <span className="mt-1 text-sm font-semibold first-letter:uppercase">{formatEventTime(e.startsAt, e.endsAt)}</span>
                     {e.summary && <span className="mt-2 text-sm">{e.summary}</span>}
+                    <span className="mt-3 block">
+                      <EventProgress compact status={e.status} seatsTaken={e.seatsTaken} minParticipants={e.minParticipants} capacity={e.capacity} />
+                    </span>
                     <span className="mt-auto flex items-center justify-between gap-2 pt-4 font-bold">
                       <span>{e.price ? formatKr(e.price) : "Gratis"}</span>
                       <span className="text-sm">

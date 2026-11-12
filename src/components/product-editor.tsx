@@ -129,6 +129,10 @@ export function ProductEditor({ initial, categories }: { initial: ProductFormDat
               <input type="checkbox" className="h-5 w-5 accent-coral" checked={p.featured} onChange={(e) => set("featured", e.target.checked)} />
               Udvalgt på forsiden
             </label>
+            <label className="flex items-center gap-2 font-semibold" title="Ingen kurv – man tilmelder sig datoer, som du opretter under Kalender">
+              <input type="checkbox" className="h-5 w-5 accent-coral" checked={p.isActivity} onChange={(e) => set("isActivity", e.target.checked)} />
+              Aktivitet (tilmelding til datoer)
+            </label>
             <label className="flex items-center gap-2 font-semibold">
               Sortering
               <input type="number" className="input !w-24 !py-1" value={p.sortOrder} onChange={(e) => set("sortOrder", Number(e.target.value) || 0)} />

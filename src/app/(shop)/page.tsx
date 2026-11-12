@@ -19,7 +19,7 @@ export default async function HomePage() {
   ]);
   const featured = products.filter((p) => p.featured).slice(0, 8);
   const cheapest = Math.min(...products.map((p) => p.fromPrice));
-  const daily = pickDaily(products.filter((p) => p.slug !== DAILY_BONUS_SLUG));
+  const daily = pickDaily(products.filter((p) => p.slug !== DAILY_BONUS_SLUG && !p.isActivity));
   const bonus = products.find((p) => p.slug === DAILY_BONUS_SLUG);
 
   return (

@@ -114,20 +114,31 @@ Ruterne på rutekortet ligger som GeoJSON i `public/routes/` (hentet fra de gaml
 ## Kalenderen og events
 
 `/kalender` viser en månedskalender med hvornår Villads er **ledig/optaget** (kun tidsrum – aldrig titler) og de
-**events** man kan købe sig adgang til: fødselsdage, bow combat, paintball, gyserfilm, drinks i parken, cykelture …
+**events** man kan tilmelde sig: bow combat, lasertag, MTB-tur, saunatur, bytur, vandretur, shelternat …
 Runde fødselsdage foreslås automatisk og linker til Fødselsdags-produktet.
 
 | Hvad | Hvor |
 |---|---|
-| Opret/ret events (dato, pris, pladser, rute som GPX/GeoJSON) | `/admin/kalender` |
-| Eventside med tilmelding og betaling | `/kalender/<slug>` |
-| Rute fra et event | vises automatisk på `/oplevelser/ruterne` |
+| Aktiviteter (produkter man tilmelder sig datoer på – flueben “Aktivitet”) | `/admin/produkter`, vises under *Fælles oplevelser* |
+| Opret/ret datoer (minimum, frist, praktisk info, pris, pladser, rute) | `/admin/kalender` – fra skabelon eller “Planlæg dato” |
+| Interesserede pr. aktivitet | `/admin/kalender` |
+| Eventside med deltagere og tilmelding | `/kalender/<slug>` |
+| Deltagerens egen side (status, betaling, afmelding) | `/tilmelding/<nøgle>` – linket står i mailen |
 
-**Flowet:** Kunden melder sig til med sin e-mail og betaler (alle butikkens betalingsmåder virker). Når ordren er betalt –
-via Stripe-webhook, “Registrér betaling” eller når du sætter ordren til *Betalt* – bliver kundens e-mail tilføjet som
-deltager på kalenderposten. Google/Outlook sender selv invitationen, så eventet lander i kundens kalender og følger
-med, hvis du flytter det. Annulleres ordren, fjernes kunden igen. Deltagerne kan ikke se hinandens e-mails.
-Er ingen kalender tilsluttet, får kunden en `.ics`-fil på mail i stedet.
+**Flowet – tilmeld først, betal når vi er nok:**
+1. Du opretter en dato med et **minimum** og en **tilmeldingsfrist** (standard 3 dage før kl. 12). Der kommer en
+   **“måske”-post** i din kalender, og dem der har sagt de er interesserede i aktiviteten, får en mail.
+2. Man tilmelder sig med navn og e-mail – evt. med venner (hver med egen e-mail). Ingen betaling. Eventsiden viser
+   “4 af 6 tilmeldt” og fornavnene (man kan vælge sig skjult). Man kan melde fra via linket, så længe der samles.
+3. Når minimum er nået, **gennemføres** eventet automatisk: hver tilmelding får en ordre (den der tilmeldte betaler for
+   sine venner), alle får en “vi kører!”-mail med betalingslink, og kalenderposten bliver en rigtig aftale med alle
+   deltagere. Nye tilmeldinger derefter bliver inviteret og bedt om at betale med det samme.
+4. Ikke nok ved fristen → eventet **aflyses** automatisk, alle får besked, og posten fjernes.
+5. Ubetalt efter 3 dage → én venlig påmindelse, og du får en liste. Du kan fjerne folk i admin (beløbet rettes).
+
+Frister og påmindelser tjekkes hver morgen af Vercel Cron (`/api/cron/events`, kræver `CRON_SECRET`) og løbende,
+når nogen kigger på events. Skabelonerne (`src/lib/event-templates.ts`) rummer idéer fra Villads' OneNote; dem med
+`activity` bliver oprettet som aktiviteter af `npm run db:seed`.
 
 ### Tilslut Google Kalender
 1. Gå til [console.cloud.google.com](https://console.cloud.google.com) → nyt projekt → *APIs & Services* → slå **Google Calendar API** til.
@@ -141,6 +152,10 @@ Private Microsoft-konti kan ikke registrere apps, så Outlook kobles på med et 
 1. Outlook.com → *Indstillinger* → *Kalender* → *Delte kalendere* → *Udgiv en kalender*.
 2. Vælg kalenderen og **“Kan se, hvornår jeg er optaget”**, klik *Udgiv*, og kopiér **ICS**-linket.
 3. Indsæt det under `/admin/kalender`. Linket gemmes krypteret og bruges kun til ledig/optaget.
+4. Skriv din Outlook-adresse under **Event-invitationer til din Outlook**. Så sender butikken (fra `SMTP_USER`) en
+   foreløbig mødeindkaldelse, når der oprettes en dato, opdaterer den med alle deltagere som mødedeltagere, når eventet
+   gennemføres, og aflyser den, hvis det ikke bliver til noget. Deltagerne får hver deres invitation (uden at se
+   hinandens e-mails). Er feltet udfyldt, sendes deltagerinvitationer kun på denne måde – også hvis Google er tilsluttet.
 
 For at se dine events i Outlook: *Tilføj kalender* → *Abonner fra internettet* → `https://venskab.villadsclaes.dk/kalender/feed.ics`.
 

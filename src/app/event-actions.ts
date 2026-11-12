@@ -1,183 +1,182 @@
 "use server";
 
 import { randomBytes } from "node:crypto";
-import { and, eq, ne, or, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { z } from "zod";
 import { db, schema as s } from "@/db";
-import { PAYMENT_METHODS, type PaymentDetails } from "@/db/schema";
-import { sendOrderEmails } from "@/lib/email";
-import { confirmEventSignups, formatEventTime } from "@/lib/events";
-import { cryptoAmount, cryptoRateDkk, getPaymentConfig, STRIPE_MIN_OERE } from "@/lib/payments";
+import { syncEventToCalendars } from "@/lib/calendar";
+import { esc } from "@/lib/email";
+import { sendAdminNotice, sendSignedUp, sendWithdrawn } from "@/lib/event-emails";
+import { activateEvent, announceConfirmed, createOrderForGroup, effectiveDeadline, getSeatsTaken } from "@/lib/events";
 import { getSettings } from "@/lib/queries";
-import { createCheckoutSession } from "@/lib/stripe";
+
+const person = z.object({
+  name: z.string().trim().min(1, "Skriv et navn").max(120),
+  email: z.string().trim().toLowerCase().max(200).email("Skriv en gyldig e-mail – den bruges til kalenderinvitationen"),
+});
 
 const signupSchema = z.object({
   eventId: z.number().int(),
-  seats: z.number().int().min(1).max(20),
-  customer: z.object({
-    name: z.string().trim().min(1, "Skriv dit navn").max(120),
-    email: z.string().trim().max(200).email("Skriv din e-mail – den bruges til kalenderinvitationen"),
-    phone: z.string().trim().max(30),
-    allowMention: z.boolean(),
-  }),
+  booker: person.extend({ phone: z.string().trim().max(30) }),
+  guests: z.array(person).max(9),
+  hideName: z.boolean(),
   note: z.string().trim().max(2000),
-  payment: z.object({
-    method: z.enum(PAYMENT_METHODS),
-    barterOffer: z.string().trim().max(1000).optional(),
-    cryptoCoin: z.string().trim().max(10).optional(),
-  }),
   website: z.string().max(0).optional(), // honningfælde mod spam-robotter
 });
 
 export type EventSignupInput = z.infer<typeof signupSchema>;
-export type EventSignupResult =
-  | { ok: true; orderNumber: string; token: string; redirectUrl?: string }
-  | { ok: false; error: string };
+export type EventSignupResult = { ok: true; token: string } | { ok: false; error: string };
 
 /**
- * Tilmelding til et event = en ordre med én billetlinje. Når ordren er betalt, kommer
- * kundens e-mail på kalenderposten, og eventet dukker op i kundens egen kalender.
+ * Tilmelding: én række pr. person, uden betaling. Når minimum er nået, gennemføres eventet,
+ * og først da laves ordren og kalenderinvitationen. Er eventet allerede bekræftet, sker det med det samme.
  */
 export async function signUpForEvent(input: EventSignupInput): Promise<EventSignupResult> {
   const parsed = signupSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Ugyldige oplysninger" };
-  const { eventId, seats, customer, note, payment } = parsed.data;
+  const { eventId, booker, guests, hideName, note } = parsed.data;
 
   const event = await db.query.events.findFirst({ where: and(eq(s.events.id, eventId), eq(s.events.published, true)) });
   if (!event) return { ok: false, error: "Eventet findes ikke længere" };
-  if (event.startsAt.getTime() < Date.now()) return { ok: false, error: "Eventet er allerede gået i gang" };
+  if (event.status === "aflyst") return { ok: false, error: "Eventet er desværre aflyst" };
+  const now = new Date();
+  if (event.startsAt <= now) return { ok: false, error: "Eventet er allerede gået i gang" };
+  if (event.status === "samler" && effectiveDeadline(event) <= now) return { ok: false, error: "Fristen for tilmelding er overskredet" };
 
-  const total = event.price * seats;
-  const free = total === 0;
-  const settings = await getSettings();
-  const payCfg = getPaymentConfig(settings);
-  let paymentDetails: PaymentDetails | null = null;
-  if (!free) {
-    if (!payCfg.enabled.includes(payment.method)) return { ok: false, error: "Den betalingsmåde er ikke tilgængelig lige nu" };
-    if (payment.method === "stripe" && total < STRIPE_MIN_OERE)
-      return { ok: false, error: "Kortbetaling kræver mindst 2,50 kr. – vælg en anden betalingsmåde" };
-    if (payment.method === "venskab") {
-      if ((payment.barterOffer ?? "").length < 5) return { ok: false, error: "Fortæl hvad du vil give til gengæld 💛" };
-      paymentDetails = { barterOffer: payment.barterOffer };
-    }
-    if (payment.method === "crypto") {
-      const wallet = payCfg.wallets.find((w) => w.coin === payment.cryptoCoin) ?? payCfg.wallets[0];
-      const rate = await cryptoRateDkk(wallet.coin);
-      if (!rate) return { ok: false, error: "Kunne ikke hente kryptokursen lige nu – prøv igen om lidt" };
-      paymentDetails = {
-        crypto: {
-          coin: wallet.coin,
-          network: wallet.network,
-          address: wallet.address,
-          amount: cryptoAmount(wallet.coin, total, rate),
-          rateDkk: rate,
-          quotedAt: new Date().toISOString(),
-        },
-      };
-    }
-  }
-  const method = free ? "venskab" : payment.method;
-  const when = formatEventTime(event.startsAt, event.endsAt);
-  const line = {
-    productId: event.productId,
-    eventId: event.id,
-    productName: `${event.emoji} ${event.title}`,
-    variantName: when,
-    unitPrice: event.price,
-    quantity: seats,
-    lineTotal: total,
-    answers: event.location ? [{ question: "Sted", answer: event.location }] : [],
-  };
+  const people = [{ ...booker, isBooker: true }, ...guests.map((g) => ({ ...g, phone: "", isBooker: false }))];
+  const emails = people.map((p) => p.email);
+  if (new Set(emails).size !== emails.length) return { ok: false, error: "Hver person skal have sin egen e-mail – den bruges til kalenderinvitationen" };
 
   const token = randomBytes(18).toString("base64url");
-  const email = customer.email.toLowerCase();
-  const phone = customer.phone.replace(/\s/g, "") || null;
-
   const created = await db.transaction(async (tx) => {
+    const already = await tx.query.eventSignups.findFirst({
+      where: and(eq(s.eventSignups.eventId, eventId), ne(s.eventSignups.status, "annulleret"), inArray(s.eventSignups.email, emails)),
+      columns: { email: true },
+    });
+    if (already) return { error: `${already.email} er allerede tilmeldt 🙂` };
     if (event.capacity != null) {
       const [{ taken }] = await tx
         .select({ taken: sql<number>`coalesce(sum(${s.eventSignups.seats}), 0)` })
         .from(s.eventSignups)
-        .where(and(eq(s.eventSignups.eventId, event.id), ne(s.eventSignups.status, "annulleret")));
+        .where(and(eq(s.eventSignups.eventId, eventId), ne(s.eventSignups.status, "annulleret")));
       const left = event.capacity - Number(taken);
-      if (left < seats) return { error: left > 0 ? `Der er kun ${left} pladser tilbage` : "Eventet er desværre fuldt booket" };
+      if (left < people.length) return { error: left > 0 ? `Der er kun ${left} ${left === 1 ? "plads" : "pladser"} tilbage` : "Eventet er desværre fuldt booket" };
     }
-
-    // Genkend kunder der har købt før (på e-mail eller telefon)
-    const existing = await tx.query.customers.findFirst({
-      where: or(eq(s.customers.email, email), phone ? eq(s.customers.phone, phone) : undefined),
-    });
-    let customerId: number;
-    if (existing) {
-      customerId = existing.id;
-      await tx
-        .update(s.customers)
-        .set({ name: customer.name, email, phone: phone ?? existing.phone, allowMention: customer.allowMention })
-        .where(eq(s.customers.id, existing.id));
-    } else {
-      const [c] = await tx
-        .insert(s.customers)
-        .values({ name: customer.name, email, phone, allowMention: customer.allowMention })
-        .returning({ id: s.customers.id });
-      customerId = c.id;
-    }
-
-    const [order] = await tx
-      .insert(s.orders)
-      .values({
-        orderNumber: `tmp-${token}`,
-        accessToken: token,
-        customerId,
-        total,
-        customerNote: note,
-        paymentMethod: method,
-        paymentDetails,
-        ...(free ? { status: "betalt" as const, paidAt: new Date() } : {}),
-      })
-      .returning({ id: s.orders.id });
-    const number = `VC-${1000 + order.id}`;
-    await tx.update(s.orders).set({ orderNumber: number }).where(eq(s.orders.id, order.id));
-    await tx.insert(s.orderItems).values({ ...line, orderId: order.id });
-    await tx.insert(s.eventSignups).values({ eventId: event.id, orderId: order.id, name: customer.name, email, seats });
-    return { number, id: order.id };
+    await tx.insert(s.eventSignups).values(
+      people.map((p) => ({
+        eventId,
+        groupToken: token,
+        isBooker: p.isBooker,
+        name: p.name,
+        email: p.email,
+        phone: p.phone.replace(/\s/g, "") || null,
+        note: p.isBooker ? note : "",
+        hideName,
+      })),
+    );
+    return { ok: true };
   });
   if ("error" in created) return { ok: false, error: created.error! };
-  const orderNumber = created.number;
 
-  let redirectUrl: string | undefined;
-  if (!free && method === "stripe") {
-    try {
-      const session = await createCheckoutSession({ id: created.id, orderNumber, accessToken: token, total, email });
-      await db.update(s.orders).set({ stripeSessionId: session.id }).where(eq(s.orders.id, created.id));
-      redirectUrl = session.url;
-    } catch (e) {
-      console.error("Stripe fejlede", e);
-    }
+  const taken = (await getSeatsTaken([eventId])).get(eventId) ?? 0;
+  if (event.status === "gennemfoeres") {
+    // Eventet kører allerede: ordre og invitation med det samme
+    await createOrderForGroup(token);
+    after(() => announceConfirmed(eventId, [token]));
+  } else if (taken >= event.minParticipants && (await activateEvent(eventId))) {
+    after(async () => {
+      await announceConfirmed(eventId);
+      const settings = await getSettings();
+      await sendAdminNotice(
+        settings.contactEmail,
+        `${event.emoji} ${event.title} bliver til noget! ✅`,
+        `<p>${taken} er tilmeldt (minimum ${event.minParticipants}). Alle har fået en invitation${event.price ? " og besked om at betale" : ""}, og din kalenderpost er skiftet fra “måske” til optaget.</p>`,
+        eventId,
+      );
+    });
+  } else {
+    after(async () => {
+      await syncEventToCalendars(eventId); // opdaterer antallet på "måske"-posten
+      for (const p of people) {
+        await sendSignedUp({ to: p.email, name: p.name, bookerName: p.isBooker ? null : booker.name, event, seatsTaken: taken, token, isBooker: p.isBooker });
+      }
+      const settings = await getSettings();
+      await sendAdminNotice(
+        settings.contactEmail,
+        `Ny tilmelding: ${event.emoji} ${event.title} (${taken}/${event.minParticipants})`,
+        `<p>${people.map((p) => esc(p.name)).join(", ")} har meldt sig til.</p>${note ? `<p>“${esc(note)}”</p>` : ""}`,
+        eventId,
+      );
+    });
   }
+  revalidatePath("/", "layout");
+  return { ok: true, token };
+}
 
+/** Afmelding via linket i mailen – kun mens eventet samler tilmeldte */
+export async function withdrawSignup(token: string): Promise<{ ok: boolean; error?: string }> {
+  const group = await db.query.eventSignups.findMany({
+    where: and(eq(s.eventSignups.groupToken, token), eq(s.eventSignups.status, "tilmeldt")),
+    with: { event: true },
+  });
+  if (group.length === 0) return { ok: false, error: "Tilmeldingen findes ikke, eller du er allerede afmeldt" };
+  const event = group[0].event;
+  if (event.status !== "samler")
+    return { ok: false, error: "Eventet er bekræftet, så de andre regner med dig – skriv til Villads, hvis du ikke kan alligevel" };
+  await db
+    .update(s.eventSignups)
+    .set({ status: "annulleret" })
+    .where(and(eq(s.eventSignups.groupToken, token), eq(s.eventSignups.status, "tilmeldt")));
   after(async () => {
-    if (free) {
-      await confirmEventSignups(created.id);
-      return;
-    }
-    await sendOrderEmails(
-      {
-        orderNumber,
-        accessToken: token,
-        total,
-        status: "afventer_betaling",
-        paymentMethod: method,
-        paymentDetails,
-        isGift: false,
-        giftRecipient: null,
-        customer: { name: customer.name, email, phone },
-        items: [{ productName: line.productName, variantName: line.variantName, quantity: seats, lineTotal: total, isBonus: false }],
-      },
-      payCfg,
+    await syncEventToCalendars(event.id);
+    const booker = group.find((x) => x.isBooker) ?? group[0];
+    await sendWithdrawn({ to: booker.email, name: booker.name, event });
+    const settings = await getSettings();
+    await sendAdminNotice(
       settings.contactEmail,
+      `Afmelding: ${event.emoji} ${event.title}`,
+      `<p>${group.map((x) => esc(x.name)).join(", ")} har meldt fra.</p>`,
+      event.id,
     );
   });
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
 
-  return { ok: true, orderNumber, token, redirectUrl };
+const interestSchema = z.object({
+  productId: z.number().int(),
+  name: z.string().trim().min(1, "Skriv dit navn").max(120),
+  email: z.string().trim().toLowerCase().max(200).email("Skriv en gyldig e-mail"),
+  note: z.string().trim().max(1000),
+  website: z.string().max(0).optional(),
+});
+
+/** "Sig at du er interesseret" – får besked når der kommer en ny dato */
+export async function registerInterest(input: z.infer<typeof interestSchema>): Promise<{ ok: boolean; error?: string }> {
+  const parsed = interestSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Ugyldige oplysninger" };
+  const d = parsed.data;
+  const product = await db.query.products.findFirst({
+    where: and(eq(s.products.id, d.productId), eq(s.products.active, true), eq(s.products.isActivity, true)),
+    columns: { id: true, name: true, emoji: true },
+  });
+  if (!product) return { ok: false, error: "Aktiviteten findes ikke" };
+  await db
+    .insert(s.activityInterests)
+    .values({ productId: product.id, name: d.name, email: d.email, note: d.note })
+    .onConflictDoUpdate({
+      target: [s.activityInterests.productId, s.activityInterests.email],
+      set: { name: d.name, note: d.note },
+    });
+  after(async () => {
+    const settings = await getSettings();
+    await sendAdminNotice(
+      settings.contactEmail,
+      `${d.name} er interesseret i ${product.emoji} ${product.name}`,
+      `${d.note ? `<p>“${esc(d.note)}”</p>` : ""}<p>Planlæg en dato i admin under Kalender.</p>`,
+    );
+  });
+  return { ok: true };
 }

@@ -1,11 +1,13 @@
 import Link from "next/link";
-import { asc, desc, gte, lt } from "drizzle-orm";
-import { disconnectCalendar, saveOutlookIcs, setPrimaryCalendar } from "@/app/admin/kalender-actions";
+import { asc, desc, eq, gte, lt } from "drizzle-orm";
+import { disconnectCalendar, saveInviteEmail, saveOutlookIcs, setPrimaryCalendar } from "@/app/admin/kalender-actions";
 import { AdminTitle, formatDate } from "@/components/admin-ui";
 import { db, schema as s } from "@/db";
 import { CALENDAR_PROVIDERS } from "@/db/schema";
 import { upcomingMilestones } from "@/lib/birthday";
 import { getConnections, getIcsUrl, PROVIDERS, primaryProvider, redirectUri } from "@/lib/calendar";
+import { INVITE_EMAIL_SETTING } from "@/lib/calendar/invites";
+import { emailEnabled } from "@/lib/email";
 import { toLocalInput } from "@/lib/dates";
 import { EVENT_TEMPLATES } from "@/lib/event-templates";
 import { getSeatsTaken } from "@/lib/events";
@@ -16,12 +18,18 @@ import { SITE_URL } from "@/lib/site";
 export default async function CalendarAdmin({ searchParams }: PageProps<"/admin/kalender">) {
   const { besked } = await searchParams;
   const now = new Date();
-  const [conns, icsUrl, settings, upcoming, past] = await Promise.all([
+  const [conns, icsUrl, settings, upcoming, past, activities] = await Promise.all([
     getConnections(),
     getIcsUrl(),
     getSettings(),
     db.query.events.findMany({ where: gte(s.events.endsAt, now), orderBy: asc(s.events.startsAt) }),
     db.query.events.findMany({ where: lt(s.events.endsAt, now), orderBy: desc(s.events.startsAt), limit: 20 }),
+    db.query.products.findMany({
+      where: eq(s.products.isActivity, true),
+      orderBy: asc(s.products.name),
+      columns: { id: true, slug: true, name: true, emoji: true, active: true },
+      with: { interests: { orderBy: desc(s.activityInterests.createdAt) } },
+    }),
   ]);
   const primary = primaryProvider(conns, settings.calendarPrimary);
   const taken = await getSeatsTaken([...upcoming, ...past].map((e) => e.id));
@@ -35,11 +43,15 @@ export default async function CalendarAdmin({ searchParams }: PageProps<"/admin/
         </Link>
         {!e.published && <span className="ml-2 rounded-full bg-ink/10 px-2 text-xs font-bold">Kladde</span>}
         {e.syncError && <span className="ml-2 text-xs font-bold text-coral" title={e.syncError}>⚠️ synkfejl</span>}
+        <span className="block text-xs font-semibold text-ink-soft">
+          {e.status === "samler" ? "📝 Samler tilmeldte" : e.status === "gennemfoeres" ? "✅ Gennemføres" : "✖ Aflyst"}
+        </span>
       </td>
       <td className="whitespace-nowrap px-4 py-2">{formatDate(e.startsAt)}</td>
       <td className="px-4 py-2 text-right">{e.price ? formatKr(e.price) : "Gratis"}</td>
-      <td className="px-4 py-2 text-right">
+      <td className="whitespace-nowrap px-4 py-2 text-right">
         {taken.get(e.id) ?? 0}
+        <span className="text-ink-soft"> (min. {e.minParticipants})</span>
         {e.capacity != null && ` / ${e.capacity}`}
       </td>
       <td className="px-4 py-2 text-center" title={Object.keys(e.externalIds).join(", ") || "Ikke i nogen kalender"}>
@@ -50,7 +62,7 @@ export default async function CalendarAdmin({ searchParams }: PageProps<"/admin/
 
   return (
     <div className="max-w-5xl space-y-8">
-      <AdminTitle sub="Events folk kan købe sig adgang til – og din ledig/optaget-status fra Google og Outlook.">
+      <AdminTitle sub="Events folk kan tilmelde sig – og din ledig/optaget-status fra Google og Outlook.">
         Kalender 🗓️
       </AdminTitle>
       {besked && (
@@ -149,6 +161,27 @@ export default async function CalendarAdmin({ searchParams }: PageProps<"/admin/
             <button className="btn btn-sun !py-1.5">{icsUrl ? "Gem" : "Kobl på"}</button>
           </form>
           {icsUrl && <p className="text-xs text-ink-soft">Tøm feltet og klik Gem for at fjerne linket.</p>}
+          <form action={saveInviteEmail} className="space-y-1 border-t border-ink/10 pt-2">
+            <label className="block text-sm font-bold" htmlFor="inviteEmail">
+              📨 Event-invitationer til din Outlook
+            </label>
+            <p className="text-xs text-ink-soft">
+              Linket ovenfor kan kun læses. Skriv din Outlook-adresse, så sender butikken en “måske”-indkaldelse, når du opretter et
+              event, og opdaterer den med alle deltagere, når eventet gennemføres (eller aflyser den). Deltagerne får deres egen
+              invitation. {emailEnabled() ? "" : "⚠️ Kræver at e-mail (SMTP) er sat op."}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <input
+                id="inviteEmail"
+                name="inviteEmail"
+                type="email"
+                defaultValue={settings[INVITE_EMAIL_SETTING] ?? ""}
+                placeholder="dig@outlook.dk"
+                className="input min-w-0 flex-1 !py-1.5 text-sm"
+              />
+              <button className="btn btn-sun !py-1.5">Gem</button>
+            </div>
+          </form>
           <p className="border-t border-ink/10 pt-2 text-sm">
             <b>Se dine events i Outlook:</b> Tilføj kalender → <i>Abonner fra internettet</i> → indsæt{" "}
             <code className="break-all rounded bg-white px-1">{SITE_URL}/kalender/feed.ics</code>
@@ -191,7 +224,7 @@ export default async function CalendarAdmin({ searchParams }: PageProps<"/admin/
                   <th className="px-4 py-2">Event</th>
                   <th className="px-4 py-2">Start</th>
                   <th className="px-4 py-2 text-right">Pris</th>
-                  <th className="px-4 py-2 text-right">Pladser</th>
+                  <th className="px-4 py-2 text-right">Tilmeldte</th>
                   <th className="px-4 py-2 text-center">Kalender</th>
                 </tr>
               </thead>
@@ -202,6 +235,50 @@ export default async function CalendarAdmin({ searchParams }: PageProps<"/admin/
               </tbody>
             </table>
           </div>
+        )}
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="p-5">
+          <h2 className="text-xl font-bold">Aktiviteter og interesserede 🙋</h2>
+          <p className="text-sm text-ink-soft">
+            Aktiviteter er produkter, man tilmelder sig datoer på. Når du opretter en dato, får de interesserede en mail.
+            Gør et produkt til en aktivitet under Produkter.
+          </p>
+        </div>
+        {activities.length === 0 ? (
+          <p className="px-5 pb-5 text-ink-soft">Ingen aktiviteter endnu.</p>
+        ) : (
+          <ul className="divide-y-2 divide-ink/10 border-t-2 border-ink/10">
+            {activities.map((a) => (
+              <li key={a.id} className="flex flex-wrap items-start gap-3 px-5 py-3">
+                <div className="min-w-0 flex-1">
+                  <Link href={`/admin/produkter/${a.id}`} className="font-bold underline">
+                    {a.emoji} {a.name}
+                  </Link>
+                  {!a.active && <span className="ml-2 rounded-full bg-ink/10 px-2 text-xs font-bold">Skjult</span>}
+                  {a.interests.length > 0 ? (
+                    <details className="mt-1 text-sm">
+                      <summary className="cursor-pointer font-semibold">{a.interests.length} interesseret</summary>
+                      <ul className="mt-1 space-y-1">
+                        {a.interests.map((i) => (
+                          <li key={i.id}>
+                            <b>{i.name}</b> <span className="text-ink-soft">{i.email} · {formatDate(i.createdAt)}</span>
+                            {i.note && <span className="block italic">“{i.note}”</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  ) : (
+                    <p className="text-sm text-ink-soft">Ingen interesserede endnu</p>
+                  )}
+                </div>
+                <Link href={`/admin/kalender/ny?aktivitet=${a.id}`} className="btn btn-white !py-1.5 text-sm">
+                  + Planlæg dato
+                </Link>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 

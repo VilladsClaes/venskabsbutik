@@ -407,6 +407,7 @@ const productSchema = z.object({
   recurringLabel: z.string().trim().max(40).nullable(),
   active: z.boolean(),
   featured: z.boolean(),
+  isActivity: z.boolean(),
   sortOrder: z.number().int(),
   variants: z
     .array(

@@ -10,8 +10,9 @@ import { CALENDAR_PROVIDERS, type CalendarProvider } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth";
 import { removeConnection, removeEventFromCalendars, saveIcsUrl, syncEventToCalendars } from "@/lib/calendar";
 import { fetchIcsBusy } from "@/lib/calendar/ics-busy";
+import { INVITE_EMAIL_SETTING } from "@/lib/calendar/invites";
 import { fromLocalInput } from "@/lib/dates";
-import { cancelEventSignups, confirmEventSignups } from "@/lib/events";
+import { activateEvent, announceConfirmed, cancelEvent, getSeatsTaken, notifyInterested, removeSignup } from "@/lib/events";
 import { parseKr } from "@/lib/money";
 
 function refresh() {
@@ -60,6 +61,24 @@ export async function saveOutlookIcs(form: FormData) {
   await saveIcsUrl(url);
   refresh();
   back(`Outlook er koblet på ✅ – fandt ${count} optagede tidsrum de næste 30 dage`);
+}
+
+/** Din Outlook-adresse: event-invitationer sendes dertil som mødeindkaldelser */
+export async function saveInviteEmail(form: FormData) {
+  await requireAdmin();
+  const email = String(form.get("inviteEmail") ?? "").trim().toLowerCase();
+  if (!email) {
+    await db.delete(s.settings).where(eq(s.settings.key, INVITE_EMAIL_SETTING));
+    refresh();
+    back("Invitationer til Outlook er slået fra");
+  }
+  if (!z.string().email().safeParse(email).success) back("Det ligner ikke en e-mailadresse");
+  await db
+    .insert(s.settings)
+    .values({ key: INVITE_EMAIL_SETTING, value: email })
+    .onConflictDoUpdate({ target: s.settings.key, set: { value: email } });
+  refresh();
+  back(`Event-invitationer sendes nu til ${email} ✅ – kommende events opdateres, næste gang de gemmes eller får en tilmelding`);
 }
 
 /* ---------- Ruter: GPX eller GeoJSON -> GeoJSON ---------- */
@@ -121,6 +140,9 @@ const eventSchema = z.object({
   endsAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "Vælg slut"),
   price: z.string(),
   capacity: z.string(),
+  minParticipants: z.string(),
+  signupDeadline: z.string().regex(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})?$/, "Ugyldig frist"),
+  practicalInfo: z.string().trim().max(5000),
   productId: z.string(),
 });
 
@@ -135,6 +157,10 @@ export async function saveEvent(id: number | null, form: FormData) {
   const price = d.price.trim() ? parseKr(d.price) : 0;
   if (price == null) back("Ugyldig pris", id ?? undefined);
   const capacity = d.capacity.trim() ? Math.max(0, parseInt(d.capacity) || 0) : null;
+  const minParticipants = Math.max(1, parseInt(d.minParticipants) || 1);
+  if (capacity != null && minParticipants > capacity) back("Minimum kan ikke være større end antal pladser", id ?? undefined);
+  const signupDeadline = d.signupDeadline ? fromLocalInput(d.signupDeadline) : null;
+  if (signupDeadline && signupDeadline > startsAt) back("Tilmeldingsfristen skal være før start", id ?? undefined);
   const route = await readRoute(form.get("route") as File | null);
   if (route === "invalid") back("Ruten kunne ikke læses – brug en GPX- eller GeoJSON-fil", id ?? undefined);
 
@@ -154,6 +180,9 @@ export async function saveEvent(id: number | null, form: FormData) {
     endsAt,
     price,
     capacity,
+    minParticipants,
+    signupDeadline,
+    practicalInfo: d.practicalInfo,
     productId: d.productId ? Number(d.productId) : null,
     published: form.get("published") === "on",
     ...(route ? { routeGeojson: route } : form.get("removeRoute") === "on" ? { routeGeojson: null } : {}),
@@ -163,14 +192,27 @@ export async function saveEvent(id: number | null, form: FormData) {
   if (id) await db.update(s.events).set(values).where(eq(s.events.id, id));
   else [{ id: eventId }] = await db.insert(s.events).values(values).returning({ id: s.events.id });
 
+  // Sænket minimum, så der allerede er nok? Så gennemføres det med det samme
+  const saved = await db.query.events.findFirst({ where: eq(s.events.id, eventId!) });
+  const taken = (await getSeatsTaken([eventId!])).get(eventId!) ?? 0;
+  let extra = "";
+  if (saved?.status === "samler" && saved.published && taken > 0 && taken >= saved.minParticipants && (await activateEvent(eventId!))) {
+    await announceConfirmed(eventId!);
+    extra = " Der er nok tilmeldte, så eventet gennemføres nu – alle er inviteret.";
+  }
+  if (!id && values.published && values.productId) {
+    const n = await notifyInterested(eventId!);
+    if (n) extra += ` ${n} interesserede har fået besked om datoen.`;
+  }
+
   const result = await syncEventToCalendars(eventId!);
   refresh();
   back(
-    result.errors.length
+    (result.errors.length
       ? `Gemt – men kalenderen fejlede: ${result.errors[0]}`
       : result.synced.length
         ? `Gemt og synkroniseret med ${result.synced.join(" og ")} ✅`
-        : "Gemt ✅",
+        : "Gemt ✅") + extra,
     eventId!,
   );
 }
@@ -187,21 +229,33 @@ export async function deleteEvent(id: number) {
   const event = await db.query.events.findFirst({ where: eq(s.events.id, id) });
   if (!event) return;
   await removeEventFromCalendars(event.externalIds);
+  // Ordrerne bliver stående (de er bogført) – de peger bare ikke på eventet længere
+  await db.update(s.orderItems).set({ eventId: null }).where(eq(s.orderItems.eventId, id));
   await db.delete(s.events).where(eq(s.events.id, id));
   refresh();
   back(`“${event.title}” er slettet og fjernet fra kalenderne`);
 }
 
-/** Villads kan selv bekræfte eller fjerne en deltager – fx hvis betalingen er aftalt udenom */
-export async function setSignupStatus(signupId: number, status: "bekraeftet" | "annulleret") {
+/** Fjern en deltager – fx en der ikke har betalt. Ubetalte ordrer rettes til. */
+export async function removeSignupAction(signupId: number) {
   await requireAdmin();
-  const signup = await db.query.eventSignups.findFirst({ where: eq(s.eventSignups.id, signupId) });
-  if (!signup) return;
-  if (status === "bekraeftet") {
-    await db.update(s.eventSignups).set({ status: "afventer" }).where(eq(s.eventSignups.id, signupId));
-    await confirmEventSignups(signup.orderId);
-  } else {
-    await cancelEventSignups(signup.orderId);
-  }
+  await removeSignup(signupId);
   refresh();
+}
+
+/** Gennemfør eventet nu, selvom minimum ikke er nået */
+export async function confirmEventNow(id: number) {
+  await requireAdmin();
+  const ok = await activateEvent(id);
+  if (ok) await announceConfirmed(id);
+  refresh();
+  back(ok ? "Eventet gennemføres ✅ – alle tilmeldte er inviteret" : "Eventet samlede ikke tilmeldte længere", id);
+}
+
+export async function cancelEventAction(id: number, form: FormData) {
+  await requireAdmin();
+  const reason = String(form.get("reason") ?? "").trim().slice(0, 1000) || "Eventet er desværre aflyst.";
+  const ok = await cancelEvent(id, reason);
+  refresh();
+  back(ok ? "Eventet er aflyst – deltagerne har fået besked, og posten er fjernet fra kalenderen" : "Eventet var allerede aflyst", id);
 }

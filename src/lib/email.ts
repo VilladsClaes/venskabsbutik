@@ -25,7 +25,7 @@ function getTransport() {
 
 type Attachment = { filename: string; content: string; contentType: string };
 
-async function send(to: string, subject: string, html: string, attachments?: Attachment[]) {
+export async function send(to: string, subject: string, html: string, attachments?: Attachment[]) {
   if (!emailEnabled()) return;
   try {
     await getTransport().sendMail({
@@ -40,10 +40,28 @@ async function send(to: string, subject: string, html: string, attachments?: Att
   }
 }
 
-const esc = (s: string) =>
+/** Mødeindkaldelse: kalenderdelen sendes som text/calendar-alternativ, så Outlook viser "Accepter/Måske/Afvis" */
+export async function sendInvite(to: string, subject: string, html: string, ics: string, method: "REQUEST" | "CANCEL") {
+  if (!emailEnabled()) return false;
+  try {
+    await getTransport().sendMail({
+      from: process.env.EMAIL_FROM ?? `Venskabsbutikken <${process.env.SMTP_USER}>`,
+      to,
+      subject,
+      html,
+      icalEvent: { method, filename: "invite.ics", content: ics },
+    });
+    return true;
+  } catch (e) {
+    console.error("Invitation fejlede", e);
+    return false;
+  }
+}
+
+export const esc = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
-function layout(title: string, body: string) {
+export function layout(title: string, body: string) {
   return `<!doctype html><html lang="da"><body style="margin:0;background:#fff8e7;font-family:Arial,Helvetica,sans-serif;color:#2b2d42">
   <div style="max-width:560px;margin:0 auto;padding:24px">
     <div style="background:#ffd23f;border:3px solid #2b2d42;border-radius:20px;padding:16px 20px;font-size:22px;font-weight:bold">🌞 Venskabsbutikken</div>
@@ -78,7 +96,7 @@ function itemsTable(o: OrderForEmail) {
   return `<table style="width:100%;border-collapse:collapse;border-top:2px dashed #ccc;margin:12px 0">${rows}<tr><td style="padding-top:8px;border-top:3px solid #2b2d42;font-weight:bold">I alt</td><td style="padding-top:8px;border-top:3px solid #2b2d42;text-align:right;font-weight:bold">${formatKr(o.total)}</td></tr></table>`;
 }
 
-const button = (href: string, label: string) =>
+export const button = (href: string, label: string) =>
   `<p><a href="${href}" style="display:inline-block;background:#ff6b6b;color:#fff;border:3px solid #2b2d42;border-radius:999px;padding:10px 20px;text-decoration:none;font-weight:bold">${label}</a></p>`;
 
 /** Betalingsvejledning til e-mailen – samme indhold som på ordresiden */

@@ -1,16 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { EventProgress } from "@/components/event-progress";
 import { EventSignup } from "@/components/event-signup";
 import { ExperienceHero } from "@/components/experience-bits";
 import { Countdown } from "@/components/live-numbers";
 import { MapView } from "@/components/map-view";
 import { ShareBar } from "@/components/share";
 import { eventUrl, googleAddLink, outlookAddLink } from "@/lib/calendar/ics";
-import { formatEventTime, getEventBySlug } from "@/lib/events";
+import { formatMoment } from "@/lib/event-text";
+import { checkDeadlinesSoon, effectiveDeadline, formatEventTime, getEventBySlug } from "@/lib/events";
 import { formatKr } from "@/lib/money";
-import { getPaymentConfig } from "@/lib/payments";
-import { getSettings } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -28,10 +28,13 @@ export async function generateMetadata({ params }: PageProps<"/kalender/[slug]">
 
 export default async function EventPage({ params }: PageProps<"/kalender/[slug]">) {
   const { slug } = await params;
-  const [event, settings] = await Promise.all([getEventBySlug(slug), getSettings()]);
+  const event = await getEventBySlug(slug);
   if (!event) notFound();
-  const payCfg = getPaymentConfig(settings);
-  const started = event.startsAt < new Date();
+  checkDeadlinesSoon();
+  const now = new Date();
+  const started = event.startsAt < now;
+  const deadline = effectiveDeadline(event);
+  const closed = event.status === "samler" && deadline <= now;
   const when = formatEventTime(event.startsAt, event.endsAt);
   const cal = {
     title: `${event.emoji} ${event.title}`,
@@ -50,7 +53,7 @@ export default async function EventPage({ params }: PageProps<"/kalender/[slug]"
     description: event.summary,
     startDate: event.startsAt.toISOString(),
     endDate: event.endsAt.toISOString(),
-    eventStatus: "https://schema.org/EventScheduled",
+    eventStatus: event.status === "aflyst" ? "https://schema.org/EventCancelled" : "https://schema.org/EventScheduled",
     eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
     ...(event.location ? { location: { "@type": "Place", name: event.location, address: event.location } } : {}),
     organizer: { "@type": "Person", name: "Villads Claes" },
@@ -75,11 +78,11 @@ export default async function EventPage({ params }: PageProps<"/kalender/[slug]"
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <div className="card p-4 text-center">
               <p className="font-display text-2xl font-bold">{event.price ? formatKr(event.price) : "Gratis"}</p>
-              <p className="text-sm font-semibold text-ink-soft">pr. plads</p>
+              <p className="text-sm font-semibold text-ink-soft">pr. person</p>
             </div>
             <div className="card p-4 text-center">
-              <p className="font-display text-2xl font-bold">{event.seatsLeft ?? "∞"}</p>
-              <p className="text-sm font-semibold text-ink-soft">pladser tilbage</p>
+              <p className="font-display text-2xl font-bold">{event.minParticipants}</p>
+              <p className="text-sm font-semibold text-ink-soft">skal med, før vi kører</p>
             </div>
             {event.product && (
               <Link href={`/tjenester/${event.product.slug}`} className="card col-span-2 p-4 text-center hover:bg-cream sm:col-span-1">
@@ -88,7 +91,23 @@ export default async function EventPage({ params }: PageProps<"/kalender/[slug]"
               </Link>
             )}
           </div>
-          {!started && (
+          <div className={`card p-5 ${event.status === "gennemfoeres" ? "bg-mint/40" : event.status === "aflyst" ? "bg-coral/20" : "bg-white"}`}>
+            <EventProgress
+              status={event.status}
+              seatsTaken={event.seatsTaken}
+              minParticipants={event.minParticipants}
+              capacity={event.capacity}
+              participants={event.participants}
+            />
+            {event.status === "samler" && (
+              <p className="mt-2 text-sm text-ink-soft">
+                Tilmeldingsfrist: <span className="font-semibold">{formatMoment(deadline)}</span>. Bliver vi ikke nok, aflyses det – og ingen
+                har betalt noget.
+              </p>
+            )}
+            {event.status === "aflyst" && event.cancelReason && <p className="mt-2">{event.cancelReason}</p>}
+          </div>
+          {!started && event.status !== "aflyst" && (
             <div className="card bg-sun p-5 text-center">
               <p className="font-display font-semibold">Der er</p>
               <Countdown to={event.startsAt.toISOString()} />
@@ -96,6 +115,12 @@ export default async function EventPage({ params }: PageProps<"/kalender/[slug]"
           )}
           {event.summary && <p className="text-xl font-semibold">{event.summary}</p>}
           {event.description && <div className="whitespace-pre-line text-lg leading-relaxed">{event.description}</div>}
+          {event.practicalInfo && (
+            <section className="card -rotate-1 bg-[#e0f0ff] p-5">
+              <h2 className="text-2xl font-bold">Praktisk 🎒</h2>
+              <p className="mt-2 whitespace-pre-line">{event.practicalInfo}</p>
+            </section>
+          )}
           {event.routeGeojson && (
             <section>
               <h2 className="mb-3 text-2xl font-bold">Ruten 🗺️</h2>
@@ -124,13 +149,30 @@ export default async function EventPage({ params }: PageProps<"/kalender/[slug]"
           <ShareBar url={eventUrl(event.slug)} title={`${event.emoji} ${event.title}`} text={event.summary || `Kom med til ${event.title}!`} />
         </div>
         <div className="lg:sticky lg:top-24 lg:self-start">
-          {started ? (
+          {event.status === "aflyst" ? (
+            <div className="card bg-cream p-6 text-center">
+              <p className="text-5xl" aria-hidden="true">😢</p>
+              <p className="mt-2 font-display text-xl font-bold">Eventet er aflyst</p>
+              {event.product && (
+                <Link href={`/tjenester/${event.product.slug}`} className="btn btn-white mt-4">
+                  Se andre datoer
+                </Link>
+              )}
+            </div>
+          ) : started ? (
             <div className="card bg-cream p-6 text-center font-display text-xl font-bold">Eventet er gået i gang 🎉</div>
+          ) : closed ? (
+            <div className="card bg-cream p-6 text-center font-display text-xl font-bold">Tilmeldingen er lukket ⏳</div>
           ) : (
             <EventSignup
-              event={{ id: event.id, title: event.title, price: event.price, seatsLeft: event.seatsLeft }}
-              methods={payCfg.enabled}
-              coins={payCfg.wallets.map((w) => ({ coin: w.coin, network: w.network }))}
+              event={{
+                id: event.id,
+                price: event.price,
+                seatsLeft: event.seatsLeft,
+                status: event.status,
+                minParticipants: event.minParticipants,
+                deadlineText: formatMoment(deadline),
+              }}
             />
           )}
         </div>

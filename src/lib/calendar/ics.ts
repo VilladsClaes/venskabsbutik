@@ -82,6 +82,58 @@ export function buildIcs(ev: IcsEvent, method: "PUBLISH" | "REQUEST" = "PUBLISH"
   return calendar([ev], method);
 }
 
+export const inviteOrganizer = () => process.env.SMTP_USER ?? `kalender@${HOST}`;
+
+/**
+ * En rigtig mødeindkaldelse (iMIP) – Outlook, Google og Apple lægger den selv i kalenderen.
+ * Samme uid + højere sequence = opdatering af den samme post; CANCEL fjerner den.
+ * tentative: posten står som "måske" (foreløbig) hos modtageren.
+ */
+export function buildInvite(input: {
+  uid: string;
+  sequence: number;
+  method: "REQUEST" | "CANCEL";
+  tentative: boolean;
+  title: string;
+  description: string;
+  location: string;
+  start: Date;
+  end: Date;
+  url: string;
+  attendees: { email: string; name: string }[];
+}) {
+  const organizer = inviteOrganizer();
+  const cancel = input.method === "CANCEL";
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Venskabsbutikken//Kalender//DA",
+    "CALSCALE:GREGORIAN",
+    `METHOD:${input.method}`,
+    "BEGIN:VEVENT",
+    `UID:${input.uid}@${HOST}`,
+    `SEQUENCE:${input.sequence}`,
+    `DTSTAMP:${stamp(new Date())}`,
+    `DTSTART:${stamp(input.start)}`,
+    `DTEND:${stamp(input.end)}`,
+    `SUMMARY:${escape(input.title)}`,
+    `DESCRIPTION:${escape(input.description.includes(input.url) ? input.description : `${input.description}\n\n${input.url}`)}`,
+    `LOCATION:${escape(input.location)}`,
+    `URL:${input.url}`,
+    `ORGANIZER;CN=Villads Claes:mailto:${organizer}`,
+    ...input.attendees.map(
+      (a) => `ATTENDEE;CN=${escape(a.name)};ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${a.email}`,
+    ),
+    `STATUS:${cancel ? "CANCELLED" : input.tentative ? "TENTATIVE" : "CONFIRMED"}`,
+    "TRANSP:OPAQUE",
+    `X-MICROSOFT-CDO-BUSYSTATUS:${cancel ? "FREE" : input.tentative ? "TENTATIVE" : "BUSY"}`,
+    ...(cancel ? [] : ["BEGIN:VALARM", "TRIGGER:-PT2H", "ACTION:DISPLAY", `DESCRIPTION:${escape(input.title)}`, "END:VALARM"]),
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ];
+  return lines.map(fold).join("\r\n") + "\r\n";
+}
+
 /** Abonnementskalender med alle events – fx til Outlook eller Apple Kalender */
 export function buildIcsFeed(events: IcsEvent[]) {
   return calendar(events, "PUBLISH", [

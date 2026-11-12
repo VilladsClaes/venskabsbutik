@@ -1,7 +1,7 @@
 "use server";
 
 import { randomBytes } from "node:crypto";
-import { asc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, eq, inArray, or } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
@@ -91,6 +91,7 @@ export async function createOrder(input: OrderInput): Promise<OrderResult> {
   for (const item of items) {
     const p = byId.get(item.productId);
     if (!p || !p.active) return { ok: false, error: "Et af produkterne findes ikke længere – fjern det fra kurven" };
+    if (p.isActivity) return { ok: false, error: `"${p.name}" er en aktivitet – tilmeld dig en dato på produktsiden` };
 
     const variant = item.variantId ? p.variants.find((v) => v.id === item.variantId && v.active) : undefined;
     if (item.variantId && !variant) return { ok: false, error: `Udgaven af "${p.name}" findes ikke længere` };
@@ -130,7 +131,7 @@ export async function createOrder(input: OrderInput): Promise<OrderResult> {
 
   // Dagens venskab: køber man dagens udvalgte, følger en gratis bonus med
   const candidates = await db.query.products.findMany({
-    where: eq(s.products.active, true),
+    where: and(eq(s.products.active, true), eq(s.products.isActivity, false)),
     columns: { id: true, slug: true },
   });
   const daily = pickDaily(candidates.filter((c) => c.slug !== DAILY_BONUS_SLUG));

@@ -104,11 +104,11 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/or
             <p className="mt-2">
               {x.status === "bekraeftet"
                 ? x.calendarSyncedAt
-                  ? `📅 Du er på gæstelisten! Der er sendt en kalenderinvitation til ${x.email} – så ligger eventet i din kalender.`
+                  ? `📅 Du er på gæstelisten! Der er sendt en kalenderinvitation til ${x.email}.`
                   : `📅 Du er på gæstelisten! Kalenderfilen er sendt til ${x.email}.`
                 : x.status === "annulleret"
                   ? "Tilmeldingen er annulleret."
-                  : `⏳ Når betalingen er registreret, sender jeg en kalenderinvitation til ${x.email}.`}
+                  : `📝 Du er tilmeldt. Når der er nok tilmeldte, får du en kalenderinvitation på ${x.email}.`}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <a href={`/kalender/${x.event.slug}`} className="btn btn-white !py-1.5 text-sm">
