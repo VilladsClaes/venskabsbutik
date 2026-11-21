@@ -12,6 +12,7 @@ const NAV = [
   { href: "/admin/kalender", label: "Kalender", e: "🗓️" },
   { href: "/admin/leverancer", label: "Leveringsdagbog", e: "📔" },
   { href: "/admin/kunder", label: "Kunder", e: "🤝" },
+  { href: "/admin/abonnementer", label: "Abonnementer", e: "📉" },
   { href: "/admin/vaev", label: "Livets væv", e: "🧶" },
   { href: "/admin/aarets-gang", label: "Årets gang", e: "💌" },
   { href: "/admin/anmeldelser", label: "Anmeldelser", e: "💬" },

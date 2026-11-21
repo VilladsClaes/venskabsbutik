@@ -18,6 +18,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     "/tjenester",
     "/oplevelser",
     "/kalender",
+    "/abonnement",
     ...EXPERIENCES.map((e) => `/oplevelser/${e.slug}`),
     "/om-venskaber",
     "/priser",

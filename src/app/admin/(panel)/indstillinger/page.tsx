@@ -80,6 +80,13 @@ export default async function SettingsPage() {
             hint="Fx https://www.paypal.biz/ditnavn eller paypal.me/ditnavn – bruges hvis der ikke er en e-mail"
             value={settings.paypalMe}
           />
+          <h2 className="pt-2 text-xl font-bold">☕ Buy Me a Coffee</h2>
+          <Field
+            name="buymeacoffeeUrl"
+            label="Link til dine medlemskaber"
+            hint="Fx https://buymeacoffee.com/ditnavn/membership – vises kun på abonnementssiden"
+            value={settings.buymeacoffeeUrl}
+          />
         </section>
 
         <section className="card space-y-4 p-5">

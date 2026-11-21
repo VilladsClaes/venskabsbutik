@@ -565,6 +565,28 @@ export const eventSignups = sqliteTable(
   ],
 );
 
+export const SUBSCRIPTION_STATUSES = ["aktiv", "opsagt"] as const;
+export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
+
+/** Venskabsabonnementer – prisen beregnes ud fra friendsSince (se lib/subscription.ts) */
+export const friendshipSubscriptions = sqliteTable(
+  "friendship_subscriptions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    name: text("name").notNull(),
+    email: text("email").notNull(),
+    phone: text("phone"),
+    /** Hvornår venskabet begyndte – bestemmer prisen */
+    friendsSince: integer("friends_since", { mode: "timestamp" }).notNull(),
+    /** bank | mobilepay | paypal | buymeacoffee */
+    method: text("method").notNull(),
+    note: text("note").notNull().default(""),
+    status: text("status", { enum: SUBSCRIPTION_STATUSES }).notNull().default("aktiv"),
+    ...timestamps,
+  },
+  (t) => [index("friendship_subscriptions_status_idx").on(t.status)],
+);
+
 /** "Sig at du er interesseret" på en aktivitet – de får besked, når der kommer en ny dato */
 export const activityInterests = sqliteTable(
   "activity_interests",

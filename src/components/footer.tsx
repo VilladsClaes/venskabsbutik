@@ -46,6 +46,7 @@ export function Footer({ phone, mobilepay }: { phone: string; mobilepay: string 
             <ul className="mt-3 space-y-1.5 text-white/90">
               <li><Link className="hover:underline" href="/tjenester">Alle tjenester</Link></li>
               <li><Link className="hover:underline" href="/oplevelser">Oplevelser</Link></li>
+              <li><Link className="hover:underline" href="/abonnement">Venskabsabonnementet</Link></li>
               <li><Link className="hover:underline" href="/priser">Sådan betaler du</Link></li>
               <li><Link className="hover:underline" href="/kurv">Din kurv</Link></li>
               <li><Link className="hover:underline" href="/oenskeliste">Min ønskeliste</Link></li>

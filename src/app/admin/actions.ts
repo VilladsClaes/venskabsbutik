@@ -16,7 +16,9 @@ import {
   PRICE_KINDS,
   QUESTION_KINDS,
   RELATION_KINDS,
+  SUBSCRIPTION_STATUSES,
   TESTIMONIAL_STATUSES,
+  type SubscriptionStatus,
 } from "@/db/schema";
 import { destroySession, requireAdmin } from "@/lib/auth";
 import { fromLocalInput } from "@/lib/dates";
@@ -517,6 +519,7 @@ const SETTING_KEYS = [
   "bankName",
   "paypalMe",
   "paypalEmail",
+  "buymeacoffeeUrl",
 ] as const;
 
 export async function saveSettings(form: FormData) {
@@ -586,4 +589,13 @@ export async function deleteDelivery(id: number) {
   await db.delete(s.deliveries).where(eq(s.deliveries.id, id));
   refresh();
   redirect("/admin/leverancer");
+}
+
+/* ---------- Venskabsabonnementer ---------- */
+
+export async function setSubscriptionStatus(id: number, status: SubscriptionStatus) {
+  await requireAdmin();
+  if (!SUBSCRIPTION_STATUSES.includes(status)) throw new Error("Ugyldig status");
+  await db.update(s.friendshipSubscriptions).set({ status }).where(eq(s.friendshipSubscriptions.id, id));
+  revalidatePath("/admin/abonnementer");
 }

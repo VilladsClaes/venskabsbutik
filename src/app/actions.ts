@@ -8,7 +8,9 @@ import { after } from "next/server";
 import { z } from "zod";
 import { db, schema as s } from "@/db";
 import { DAILY_BONUS_SLUG, pickDaily } from "@/lib/daily";
-import { sendOrderEmails } from "@/lib/email";
+import { button, esc, layout, send, sendOrderEmails } from "@/lib/email";
+import { SITE_URL } from "@/lib/site";
+import { formatMonthly, SUBSCRIPTION_METHODS, tierFor } from "@/lib/subscription";
 import { cryptoAmount, cryptoRateDkk, getPaymentConfig, STRIPE_MIN_OERE } from "@/lib/payments";
 import { getSettings } from "@/lib/queries";
 import { createCheckoutSession } from "@/lib/stripe";
@@ -358,4 +360,57 @@ export async function startStripePayment(orderNumber: string, token: string) {
     .set({ stripeSessionId: session.id, paymentMethod: "stripe" })
     .where(eq(s.orders.id, order.id));
   redirect(session.url);
+}
+
+/* ---------- Venskabsabonnement ---------- */
+
+const subscriptionSchema = z.object({
+  name: z.string().trim().min(1, "Skriv dit navn").max(80),
+  email: z.string().trim().email("Skriv en gyldig e-mail").max(120),
+  phone: z.string().trim().max(20).optional(),
+  friendsSince: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Vælg hvornår vi blev venner"),
+  method: z.enum(SUBSCRIPTION_METHODS, "Vælg hvordan du vil betale"),
+  note: z.string().trim().max(500).default(""),
+  website: z.string().max(0).optional(),
+});
+
+export type SubscriptionState = { ok?: boolean; error?: string; price?: number; tierName?: string };
+
+export async function subscribeFriendship(_prev: SubscriptionState, form: FormData): Promise<SubscriptionState> {
+  const parsed = subscriptionSchema.safeParse(Object.fromEntries(form));
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Noget gik galt" };
+  const { name, email, phone, friendsSince: since, method, note } = parsed.data;
+  const friendsSince = new Date(`${since}T12:00:00`);
+  const now = new Date();
+  if (Number.isNaN(friendsSince.getTime()) || friendsSince > now) return { error: "Vi kan ikke blive venner i fremtiden 🔮" };
+  if (friendsSince.getFullYear() < 1900) return { error: "Så gamle venner er vi vist ikke" };
+
+  await db.insert(s.friendshipSubscriptions).values({ name, email, phone: phone || null, friendsSince, method, note });
+  const tier = tierFor(friendsSince, now);
+
+  after(async () => {
+    const settings = await getSettings();
+    const first = esc(name.split(" ")[0]);
+    await send(
+      email,
+      "Velkommen til venskabsabonnementet 💌",
+      layout(
+        `Velkommen, ${first}! 🎉`,
+        `<p>Du er på trinnet <b>${tier.emoji} ${esc(tier.name)}</b>, og din månedspris er <b>${formatMonthly(tier.price)}</b>.</p>
+        <p>Prisen falder 10 kr. hver gang, vi har venskabsdag. Jeg sender dig en påmindelse, så du kan rette din faste overførsel.</p>
+        ${button(`${SITE_URL}/abonnement`, "Se hvordan du sætter betalingen op")}`,
+      ),
+    );
+    if (settings.contactEmail)
+      await send(
+        settings.contactEmail,
+        `Nyt venskabsabonnement: ${name} (${formatMonthly(tier.price)}/md.)`,
+        layout(
+          `${esc(name)} vil abonnere på dig 🛎️`,
+          `<p>${esc(email)} ${phone ? esc(phone) : ""}</p><p>Venner siden ${since} · ${tier.emoji} ${esc(tier.name)} · betaler med ${esc(method)}</p>
+          ${note ? `<p>“${esc(note)}”</p>` : ""}${button(`${SITE_URL}/admin/abonnementer`, "Åbn abonnementer")}`,
+        ),
+      );
+  });
+  return { ok: true, price: tier.price, tierName: tier.name };
 }

@@ -78,6 +78,13 @@
       "when": 1794453580721,
       "tag": "0010_event_invitationer",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1795219016052,
+      "tag": "0011_venskabsabonnement",
+      "breakpoints": true
     }
   ]
 }

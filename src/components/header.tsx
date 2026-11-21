@@ -10,6 +10,7 @@ const NAV = [
   { href: "/tjenester", label: "Tjenester", emoji: "🎁" },
   { href: "/oplevelser", label: "Oplevelser", emoji: "🎡" },
   { href: "/kalender", label: "Kalender", emoji: "🗓️" },
+  { href: "/abonnement", label: "Abonnement", emoji: "📉" },
   { href: "/om-venskaber", label: "Om venskaber", emoji: "🤝" },
   { href: "/priser", label: "Sådan betaler du", emoji: "💸" },
   { href: "/om-villads", label: "Om Villads", emoji: "🙋‍♂️" },
