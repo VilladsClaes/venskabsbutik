@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { logout } from "../actions";
+import { forgetDevices, logout } from "../actions";
 import { requireAdmin } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +45,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <form action={logout} className="lg:mt-4">
             <button className="whitespace-nowrap rounded-xl px-3 py-2 font-display font-semibold text-ink-soft hover:bg-white/70">
               🚪 Log ud
+            </button>
+          </form>
+          <form action={forgetDevices}>
+            <button
+              className="whitespace-nowrap rounded-xl px-3 py-2 text-sm text-ink-soft hover:bg-white/70"
+              title="Alle computere, der er husket, skal logge ind igen"
+            >
+              🧹 Glem alle computere
             </button>
           </form>
         </nav>

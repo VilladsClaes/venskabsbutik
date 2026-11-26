@@ -20,7 +20,7 @@ import {
   TESTIMONIAL_STATUSES,
   type SubscriptionStatus,
 } from "@/db/schema";
-import { destroySession, requireAdmin } from "@/lib/auth";
+import { destroySession, forgetAllDevices, requireAdmin } from "@/lib/auth";
 import { fromLocalInput } from "@/lib/dates";
 import { isFuzzyDate, LIFESPAN } from "@/lib/life-archive";
 import { sendStatusEmail } from "@/lib/email";
@@ -35,6 +35,13 @@ function refresh() {
 
 export async function logout() {
   await destroySession();
+  redirect("/admin/login");
+}
+
+/** Fx hvis en computer er blevet væk: alle godkendte computere skal logge ind igen */
+export async function forgetDevices() {
+  await requireAdmin();
+  await forgetAllDevices();
   redirect("/admin/login");
 }
 

@@ -6,7 +6,12 @@ import { redirect } from "next/navigation";
 import { db, schema as s } from "@/db";
 
 const COOKIE = "vb_admin";
-const MAX_AGE = 60 * 60 * 12; // 12 timer – log ind igen hver dag
+const MAX_AGE = 60 * 60 * 12; // 12 timer for en almindelig session
+/** "Husk denne computer": en godkendt computer er logget ind i et år uden at spørge igen */
+const DEVICE_COOKIE = "vb_device";
+const DEVICE_MAX_AGE = 60 * 60 * 24 * 365;
+/** Tælles op af "Glem alle computere", så alle tidligere godkendte computere mister adgangen */
+const DEVICE_GEN_KEY = "admin_device_generation";
 
 function secret() {
   const s = process.env.SESSION_SECRET;
@@ -111,7 +116,7 @@ async function lockedFor(ipHash: string): Promise<number> {
 export type LoginResult = { ok: true } | { ok: false; error: "forkert" | "laast"; minutes?: number };
 
 /** Hele login-tjekket: rate limit, adgangskode og evt. 2FA-kode */
-export async function attemptLogin(password: string, code: string): Promise<LoginResult> {
+export async function attemptLogin(password: string, code: string, remember = false): Promise<LoginResult> {
   const ipHash = await clientIpHash();
   const minutes = await lockedFor(ipHash);
   if (minutes) return { ok: false, error: "laast", minutes };
@@ -126,6 +131,7 @@ export async function attemptLogin(password: string, code: string): Promise<Logi
   }
   await db.delete(s.loginAttempts).where(eq(s.loginAttempts.ipHash, ipHash));
   await createSession();
+  if (remember) await rememberDevice();
   return { ok: true };
 }
 
@@ -137,29 +143,77 @@ async function createSession() {
     .setIssuedAt()
     .setExpirationTime(`${MAX_AGE}s`)
     .sign(secret());
-  (await cookies()).set(COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: MAX_AGE,
-  });
+  (await cookies()).set(COOKIE, token, cookieOpts(MAX_AGE));
 }
 
+const cookieOpts = (maxAge: number) => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax" as const,
+  path: "/",
+  maxAge,
+});
+
+async function deviceGeneration(): Promise<number> {
+  const [row] = await db.select({ value: s.settings.value }).from(s.settings).where(eq(s.settings.key, DEVICE_GEN_KEY));
+  return Number(row?.value ?? 0) || 0;
+}
+
+/** Godkender denne computer: den forbliver logget ind i et år */
+async function rememberDevice() {
+  const token = await new SignJWT({ role: "admin-device", mfa: totpEnabled(), gen: await deviceGeneration() })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime(`${DEVICE_MAX_AGE}s`)
+    .sign(secret());
+  (await cookies()).set(DEVICE_COOKIE, token, cookieOpts(DEVICE_MAX_AGE));
+}
+
+/** Er denne computer godkendt? */
+export async function isTrustedDevice(): Promise<boolean> {
+  const token = (await cookies()).get(DEVICE_COOKIE)?.value;
+  if (!token) return false;
+  try {
+    const { payload } = await jwtVerify(token, secret(), { algorithms: ["HS256"] });
+    return (
+      payload.role === "admin-device" &&
+      (!totpEnabled() || payload.mfa === true) &&
+      payload.gen === (await deviceGeneration())
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Log ud på denne computer (og glem den) */
 export async function destroySession() {
-  (await cookies()).delete(COOKIE);
+  const jar = await cookies();
+  jar.delete(COOKIE);
+  jar.delete(DEVICE_COOKIE);
+}
+
+/** Alle godkendte computere – også denne – skal logge ind igen */
+export async function forgetAllDevices() {
+  const next = String((await deviceGeneration()) + 1);
+  await db
+    .insert(s.settings)
+    .values({ key: DEVICE_GEN_KEY, value: next })
+    .onConflictDoUpdate({ target: s.settings.key, set: { value: next } });
+  await destroySession();
 }
 
 export async function isAdmin(): Promise<boolean> {
   const token = (await cookies()).get(COOKIE)?.value;
-  if (!token) return false;
-  try {
-    const { payload } = await jwtVerify(token, secret(), { algorithms: ["HS256"] });
-    // Slås 2FA til, gælder sessioner fra før ikke længere
-    return payload.role === "admin" && (!totpEnabled() || payload.mfa === true);
-  } catch {
-    return false;
+  if (token) {
+    try {
+      const { payload } = await jwtVerify(token, secret(), { algorithms: ["HS256"] });
+      // Slås 2FA til, gælder sessioner fra før ikke længere
+      if (payload.role === "admin" && (!totpEnabled() || payload.mfa === true)) return true;
+    } catch {
+      // udløbet eller ugyldig – prøv den godkendte computer
+    }
   }
+  return isTrustedDevice();
 }
 
 /** Bruges i alle admin-sider og -handlinger */
