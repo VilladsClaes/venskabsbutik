@@ -9,7 +9,7 @@ async function login(form: FormData) {
   "use server";
   // Lille forsinkelse gør det dyrere at gætte adgangskoden
   await new Promise((r) => setTimeout(r, 400));
-  const res = await attemptLogin(String(form.get("password") ?? ""), String(form.get("code") ?? ""));
+  const res = await attemptLogin(String(form.get("password") ?? ""), String(form.get("code") ?? ""), form.get("remember") === "on");
   if (!res.ok) redirect(res.error === "laast" ? `/admin/login?laast=${res.minutes}` : "/admin/login?fejl=1");
   redirect("/admin");
 }
@@ -42,6 +42,10 @@ export default async function LoginPage({ searchParams }: PageProps<"/admin/logi
             />
           </label>
         )}
+        <label className="flex items-center gap-2 text-left">
+          <input name="remember" type="checkbox" defaultChecked className="size-5" />
+          <span>Husk denne computer – så skal jeg ikke logge ind igen</span>
+        </label>
         {fejl && <p className="font-bold text-coral">{twoFactor ? "Forkert adgangskode eller kode 🙈" : "Forkert adgangskode 🙈"}</p>}
         {laast && (
           <p className="font-bold text-coral">
